@@ -21,10 +21,12 @@ cp .env.example .env
 编辑 `.env` 文件，填入你拥有的平台 API Key（不用的留空即可）：
 
 ```bash
-# 免费平台 - 注册即可用
+# 免费平台 - 注册即送额度
 ZHIPU_API_KEY=xxx        # 智谱 GLM https://open.bigmodel.cn
 SILICONFLOW_API_KEY=xxx  # 硅基流动 https://cloud.siliconflow.cn
 OPENROUTER_API_KEY=xxx   # OpenRouter https://openrouter.ai/keys
+MODELSCOPE_API_KEY=xxx   # 魔搭 https://modelscope.cn/my/myaccesstoken
+LONGCAT_API_KEY=xxx      # 美团 LongCat https://longcat.chat/platform
 ```
 
 > 只需填入一个 Key 就能用起来，多个平台配合使用可实现自动 fallback。
@@ -86,10 +88,11 @@ docker run -p 8080:8080 \
 
 | 路由名称 | 说明 | 平台 |
 |----------|------|------|
-| `chat-free` | 免费聊天模型，多平台 fallback | 智谱 + 硅基流动 + OpenRouter |
-| `reasoning-free` | 免费推理模型 | 硅基流动 + OpenRouter |
+| `chat-free` | 免费聊天模型，多平台 fallback | 智谱 + 硅基流动 + LongCat + 魔搭 + OpenRouter |
+| `reasoning-free` | 免费推理/思考链模型 | 硅基流动 + 魔搭 + LongCat + 智谱 |
+| `chat-free-large` | 免费大参数模型 (质量优先) | 魔搭 + 硅基流动 + OpenRouter |
+| `chat-lite` | 轻量高速模型 | LongCat + 智谱 + 硅基流动 |
 | `chat` | 通用大模型（付费） | DeepSeek + 阿里云 + 智谱 |
-| `glm-4-flash` | GLM-4-Flash 多云部署 | 智谱 + 硅基流动 |
 
 ## 7. 开启精准限流
 
