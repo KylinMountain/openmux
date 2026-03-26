@@ -15,6 +15,7 @@ services:
       - ALIYUN_API_KEY=${ALIYUN_API_KEY}
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
       - LONGCAT_API_KEY=${LONGCAT_API_KEY}
+      - VOLCENGINE_API_KEY=${VOLCENGINE_API_KEY}
     volumes:
       - ./config.yaml:/app/config.yaml
     restart: unless-stopped

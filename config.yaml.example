@@ -150,6 +150,23 @@ providers:
     api_keys:
       - "${LONGCAT_API_KEY}"
 
+  # ----------------------------------------------------------
+  # 火山引擎 Volcengine / 豆包 Doubao (新用户每模型 50 万 tokens 免费)
+  # 申请 Key: https://www.volcengine.com
+  # 免费模型: doubao-lite-32k, doubao-pro-32k 等
+  # 注意: API Key 格式为 ark-xxxxx
+  # ----------------------------------------------------------
+  volcengine:
+    base_url: "https://ark.cn-beijing.volces.com/api/v3"
+    type: "openai"
+    timeout: 60s
+    rate_limit:
+      rpm: 120
+      tpm: 100000
+      concurrent: 10
+    api_keys:
+      - "${VOLCENGINE_API_KEY}"
+
 
 # ============================================================
 # 模型路由配置
@@ -252,6 +269,7 @@ passthrough:
     - aliyun
     - deepseek
     - longcat
+    - volcengine
 
 # 监控配置
 monitoring:
