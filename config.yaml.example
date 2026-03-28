@@ -70,7 +70,7 @@ providers:
   # 免费模型: google/gemini-2.5-flash:free,
   #           meta-llama/llama-3.3-70b-instruct:free,
   #           deepseek/deepseek-v3.2-20251201:free,
-  #           qwen/qwen3-coder-480b:free 等
+  #           qwen/qwen3-coder:free 等
   # 限制: ~20 RPM, ~200 请求/天
   # ----------------------------------------------------------
   openrouter:

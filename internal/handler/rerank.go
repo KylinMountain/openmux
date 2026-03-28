@@ -87,11 +87,12 @@ func (h *RerankHandler) handleWithRetry(
 
 	target, err := targetSelector.Select()
 	if err == nil {
-		if resp, err := h.tryTarget(ctx, req, target); err == nil {
+		resp, tryErr := h.tryTarget(ctx, req, target)
+		if tryErr == nil {
 			return resp, nil
 		}
-		logger.Warnf("Selected target %s/%s failed: %v", target.Provider, target.Model, err)
-		lastErr = err
+		logger.Warnf("Selected target %s/%s failed: %v", target.Provider, target.Model, tryErr)
+		lastErr = tryErr
 	}
 
 	allTargets := targetSelector.GetAll()

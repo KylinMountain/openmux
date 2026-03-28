@@ -141,11 +141,12 @@ func (h *ChatHandler) handleStream(
 	// 首先尝试使用加权选择器选择目标
 	target, err := targetSelector.Select()
 	if err == nil {
-		if err := h.tryStreamTarget(w, r, req, flusher, target); err == nil {
+		if tryErr := h.tryStreamTarget(w, r, req, flusher, target); tryErr == nil {
 			return
+		} else {
+			logger.Warnf("Stream target %s/%s failed: %v", target.Provider, target.Model, tryErr)
+			lastErr = tryErr
 		}
-		logger.Warnf("Stream target %s/%s failed: %v", target.Provider, target.Model, err)
-		lastErr = err
 	}
 
 	// 如果加权选择失败，尝试所有目标（用于重试）
@@ -261,11 +262,12 @@ func (h *ChatHandler) handleWithRetry(
 	// 首先尝试使用加权选择器选择目标
 	target, err := targetSelector.Select()
 	if err == nil {
-		if resp, err := h.tryTarget(ctx, req, target); err == nil {
+		resp, tryErr := h.tryTarget(ctx, req, target)
+		if tryErr == nil {
 			return resp, nil
 		}
-		logger.Warnf("Selected target %s/%s failed: %v", target.Provider, target.Model, err)
-		lastErr = err
+		logger.Warnf("Selected target %s/%s failed: %v", target.Provider, target.Model, tryErr)
+		lastErr = tryErr
 	}
 
 	// 如果加权选择失败，尝试所有目标（用于重试）
