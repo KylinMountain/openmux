@@ -74,7 +74,7 @@ func (f *OpenRouterFetcher) FetchFreeModels(ctx context.Context, baseURL, apiKey
 
 	var models []DiscoveredModel
 	for _, m := range resp.Data {
-		if m.Pricing.Prompt == "0" && m.Pricing.Completion == "0" {
+		if isFreePrice(m.Pricing.Prompt) && isFreePrice(m.Pricing.Completion) {
 			models = append(models, DiscoveredModel{
 				ProviderName: "openrouter",
 				ModelID:      m.ID,
@@ -82,6 +82,13 @@ func (f *OpenRouterFetcher) FetchFreeModels(ctx context.Context, baseURL, apiKey
 		}
 	}
 	return models, nil
+}
+
+// isFreePrice 判断 OpenRouter 的定价字段是否为免费
+// 可能的值: "0", "free", "" 等
+func isFreePrice(price string) bool {
+	p := strings.TrimSpace(strings.ToLower(price))
+	return p == "0" || p == "free" || p == ""
 }
 
 // --- SiliconFlow ---
