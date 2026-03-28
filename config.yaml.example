@@ -259,6 +259,20 @@ model_routes:
         weight: 1
     strategy: weighted_round_robin
 
+# ============================================================
+# 智能路由 (Auto Route)
+# 根据请求复杂度自动分流到不同层级的模型
+# 简单对话走小模型 (快+省)，复杂任务走大模型，推理任务走推理模型
+# 用法: curl -d '{"model":"auto", ...}'
+# ============================================================
+auto_route:
+  enabled: true
+  alias: "auto"                    # 触发别名
+  lite: "chat-lite"                # 简单任务 → 轻量模型 (打招呼、短问答)
+  standard: "chat-free"            # 常规任务 → 标准模型 (普通对话、摘要)
+  large: "chat-free-large"         # 复杂任务 → 大模型 (代码生成、长文写作、function calling)
+  reasoning: "reasoning-free"      # 推理任务 → 推理模型 (数学、逻辑、调试)
+
 # 直通模式 - 允许 provider/model 格式直接访问
 passthrough:
   enabled: true

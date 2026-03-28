@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/openai/openai-go"
+	"github.com/openmux/openmux/internal/autoroute"
 	"github.com/openmux/openmux/internal/balancer"
 	"github.com/openmux/openmux/internal/config"
 	"github.com/openmux/openmux/internal/provider"
@@ -22,6 +23,7 @@ type ChatHandler struct {
 	router         *router.Router
 	providerPool   *provider.Pool
 	balancerPool   *balancer.BalancerPool
+	autoRouter     *autoroute.AutoRouter
 }
 
 // NewChatHandler 创建聊天处理器
@@ -29,11 +31,13 @@ func NewChatHandler(
 	router *router.Router,
 	providerPool *provider.Pool,
 	balancerPool *balancer.BalancerPool,
+	autoRouter *autoroute.AutoRouter,
 ) *ChatHandler {
 	return &ChatHandler{
 		router:       router,
 		providerPool: providerPool,
 		balancerPool: balancerPool,
+		autoRouter:   autoRouter,
 	}
 }
 
@@ -57,8 +61,18 @@ func (h *ChatHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		// Option to log full tools content if needed, but count is good start
 	}
 
+	// 智能路由：如果 model 是 auto 别名，根据请求复杂度选择实际路由
+	modelName := req.Model
+	if h.autoRouter != nil && modelName == h.autoRouter.Alias() {
+		modelName = h.autoRouter.Resolve(&req)
+		if modelName == "" {
+			writeError(w, http.StatusBadRequest, "auto_route_error", "No model tier configured for auto routing")
+			return
+		}
+	}
+
 	// 路由模型
-	targetSelector, err := h.router.Route(req.Model)
+	targetSelector, err := h.router.Route(modelName)
 	if err != nil {
 		if e, ok := err.(*errors.Error); ok {
 			writeError(w, http.StatusNotFound, string(e.Code), e.Message)

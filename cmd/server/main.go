@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/openmux/openmux/internal/auth"
+	"github.com/openmux/openmux/internal/autoroute"
 	"github.com/openmux/openmux/internal/balancer"
 	"github.com/openmux/openmux/internal/config"
 	"github.com/openmux/openmux/internal/discovery"
@@ -57,8 +58,16 @@ func main() {
 	modelRouter := router.NewRouter(cfg)
 	authManager := auth.NewManager(&cfg.Auth)
 
+	// 创建智能路由
+	var autoRouter *autoroute.AutoRouter
+	if cfg.AutoRoute.Enabled {
+		autoRouter = autoroute.New(cfg.AutoRoute)
+		logger.Infof("Auto routing enabled (alias: %q, lite: %q, standard: %q, large: %q, reasoning: %q)",
+			autoRouter.Alias(), cfg.AutoRoute.Lite, cfg.AutoRoute.Standard, cfg.AutoRoute.Large, cfg.AutoRoute.Reasoning)
+	}
+
 	// 创建处理器
-	chatHandler := handler.NewChatHandler(modelRouter, providerPool, balancerPool)
+	chatHandler := handler.NewChatHandler(modelRouter, providerPool, balancerPool, autoRouter)
 	embeddingHandler := handler.NewEmbeddingHandler(modelRouter, providerPool, balancerPool)
 	rerankHandler := handler.NewRerankHandler(modelRouter, providerPool, balancerPool)
 	modelsHandler := handler.NewModelsHandler(modelRouter)
