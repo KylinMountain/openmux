@@ -93,12 +93,18 @@ func (w *WeightedRoundRobin) Release(backend *Backend, usedTokens, estimatedToke
 	backend.ReleaseConn(usedTokens, estimatedTokens)
 }
 
-// MarkUnhealthy 标记后端不健康
+// UnhealthyThreshold 连续失败多少次才标记 unhealthy
+const UnhealthyThreshold = 3
+
+// MarkUnhealthy 标记后端不健康（需连续失败达到阈值）
 func (w *WeightedRoundRobin) MarkUnhealthy(backend *Backend) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	backend.Healthy = false
+	failCount := backend.IncrFailCount()
 	backend.LastFailure = time.Now()
+	if failCount >= int32(UnhealthyThreshold) {
+		w.mu.Lock()
+		backend.Healthy = false
+		w.mu.Unlock()
+	}
 }
 
 // MarkHealthy 标记后端健康

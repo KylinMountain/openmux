@@ -139,8 +139,10 @@ func (h *ChatHandler) handleStream(
 	var lastErr error
 	
 	// 首先尝试使用加权选择器选择目标
+	var triedTarget string
 	target, err := targetSelector.Select()
 	if err == nil {
+		triedTarget = target.Provider + "/" + target.Model
 		if tryErr := h.tryStreamTarget(w, r, req, flusher, target); tryErr == nil {
 			return
 		} else {
@@ -149,8 +151,11 @@ func (h *ChatHandler) handleStream(
 		}
 	}
 
-	// 如果加权选择失败，尝试所有目标（用于重试）
+	// 如果加权选择失败，尝试所有目标（跳过已尝试的）
 	for _, target := range allTargets {
+		if triedTarget == target.Provider+"/"+target.Model {
+			continue
+		}
 		if err := h.tryStreamTarget(w, r, req, flusher, &target); err == nil {
 			return
 		}
@@ -260,8 +265,10 @@ func (h *ChatHandler) handleWithRetry(
 	var lastErr error
 
 	// 首先尝试使用加权选择器选择目标
+	var triedTarget string
 	target, err := targetSelector.Select()
 	if err == nil {
+		triedTarget = target.Provider + "/" + target.Model
 		resp, tryErr := h.tryTarget(ctx, req, target)
 		if tryErr == nil {
 			return resp, nil
@@ -270,9 +277,13 @@ func (h *ChatHandler) handleWithRetry(
 		lastErr = tryErr
 	}
 
-	// 如果加权选择失败，尝试所有目标（用于重试）
+	// 如果加权选择失败，尝试所有目标（跳过已尝试的）
 	allTargets := targetSelector.GetAll()
 	for _, target := range allTargets {
+		targetKey := target.Provider + "/" + target.Model
+		if targetKey == triedTarget {
+			continue // 跳过已尝试过的目标
+		}
 		resp, err := h.tryTarget(ctx, req, &target)
 		if err == nil {
 			return resp, nil
@@ -333,6 +344,8 @@ func (h *ChatHandler) tryTarget(
 		return nil, err
 	}
 
+	// 成功：重置失败计数
+	backend.ResetFailCount()
 	return resp, nil
 }
 
