@@ -19,6 +19,7 @@ type DiscoveryConfig struct {
 	Enabled   bool          `yaml:"enabled"`
 	Interval  time.Duration `yaml:"interval"`   // 刷新间隔，默认 24h
 	Providers []string      `yaml:"providers"`  // 需要发现的 provider 列表
+	FreeAlias string        `yaml:"free_alias"` // 聚合别名，默认 "free"，用户可直接 model:"free" 调用
 }
 
 // ServerConfig 服务器配置

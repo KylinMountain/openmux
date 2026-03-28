@@ -276,11 +276,14 @@ passthrough:
 # 模型自动发现
 # 定时从各平台 /v1/models 接口获取最新免费模型列表
 # 发现的模型会自动注册路由，可通过 provider/model 格式访问
+# 同时自动生成聚合别名 "free"，从每个平台选最佳免费模型组成 fallback 组
+# 用法: curl -d '{"model":"free", ...}' 即可调用
 # ============================================================
 discovery:
   enabled: true
-  interval: 24h  # 刷新间隔
-  providers:     # 需要自动发现的 provider
+  interval: 24h       # 刷新间隔
+  free_alias: "free"  # 聚合别名，所有免费模型的入口
+  providers:           # 需要自动发现的 provider
     - openrouter
     - siliconflow
     - modelscope
