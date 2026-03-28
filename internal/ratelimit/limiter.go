@@ -20,17 +20,32 @@ type TokenBucket struct {
 	lastRefill   time.Time
 }
 
-// NewTokenBucket 创建 Token Bucket 限流器
-func NewTokenBucket(rpm int) *TokenBucket {
-	capacity := rpm
+// NewTokenBucket 创建 Token Bucket 限流器（按分钟填充）
+func NewTokenBucket(perMinute int) *TokenBucket {
+	capacity := perMinute
 	if capacity <= 0 {
 		capacity = 1000000 // 无限制
 	}
-	
+
 	return &TokenBucket{
 		capacity:   capacity,
 		tokens:     float64(capacity),
 		refillRate: float64(capacity) / 60.0, // 每秒补充的 token 数
+		lastRefill: time.Now(),
+	}
+}
+
+// NewDailyTokenBucket 创建按天限流的 Token Bucket
+func NewDailyTokenBucket(perDay int) *TokenBucket {
+	capacity := perDay
+	if capacity <= 0 {
+		capacity = 1000000 // 无限制
+	}
+
+	return &TokenBucket{
+		capacity:   capacity,
+		tokens:     float64(capacity),
+		refillRate: float64(capacity) / 86400.0, // 每秒补充 = 总量 / 86400秒
 		lastRefill: time.Now(),
 	}
 }
@@ -95,13 +110,15 @@ func (tb *TokenBucket) Consume(n float64) {
 type MultiLimiter struct {
 	rpmLimiter *TokenBucket
 	tpmLimiter *TokenBucket
+	rpdLimiter *TokenBucket // 每日请求数限流
 }
 
 // NewMultiLimiter 创建多维度限流器
-func NewMultiLimiter(rpm, tpm int) *MultiLimiter {
+func NewMultiLimiter(rpm, tpm, rpd int) *MultiLimiter {
 	return &MultiLimiter{
 		rpmLimiter: NewTokenBucket(rpm),
 		tpmLimiter: NewTokenBucket(tpm),
+		rpdLimiter: NewDailyTokenBucket(rpd),
 	}
 }
 
@@ -112,15 +129,29 @@ func (ml *MultiLimiter) Allow() bool {
 
 // Reserve 预留 Token
 func (ml *MultiLimiter) Reserve(estimatedTokens int) bool {
+	// 检查 RPD
+	if ml.rpdLimiter.capacity < 1000000 {
+		if !ml.rpdLimiter.Allow() {
+			return false
+		}
+	}
+
 	if !ml.rpmLimiter.Allow() {
+		// RPM 不足，归还 RPD
+		if ml.rpdLimiter.capacity < 1000000 {
+			ml.rpdLimiter.Return(1)
+		}
 		return false
 	}
+
 	// 如果配置了 TPM 限制 (tpm > 0)，则检查 TPM
-	// 如果 TPM 很大 (默认值)，通常认为不限制
-	if ml.tpmLimiter.capacity < 1000000 { 
+	if ml.tpmLimiter.capacity < 1000000 {
 		if !ml.tpmLimiter.AllowN(estimatedTokens) {
-			// 如果 TPM 不足，记得归还 RPM
+			// TPM 不足，归还 RPM 和 RPD
 			ml.rpmLimiter.Return(1)
+			if ml.rpdLimiter.capacity < 1000000 {
+				ml.rpdLimiter.Return(1)
+			}
 			return false
 		}
 	}

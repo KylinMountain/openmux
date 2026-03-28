@@ -98,6 +98,7 @@ providers:
     timeout: 60s
     rate_limit:
       rpm: 60
+      rpd: 2000     # 每天 2000 次调用限制
       tpm: 100000
       concurrent: 10
     api_keys:

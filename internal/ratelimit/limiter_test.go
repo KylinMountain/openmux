@@ -35,7 +35,7 @@ func TestTokenBucket(t *testing.T) {
 }
 
 func TestMultiLimiter(t *testing.T) {
-	limiter := NewMultiLimiter(60, 1000)
+	limiter := NewMultiLimiter(60, 1000, 0)
 
 	// 第一个请求应该通过 (Reserve 0 tokens also checks RPM)
 	if !limiter.Reserve(0) {
@@ -50,5 +50,21 @@ func TestMultiLimiter(t *testing.T) {
 	// 超过限制应该被拒绝
 	if limiter.Reserve(10000) {
 		t.Error("Should not allow 10000 tokens")
+	}
+}
+
+func TestMultiLimiterRPD(t *testing.T) {
+	// RPD=5, RPM 不限
+	limiter := NewMultiLimiter(0, 0, 5)
+
+	for i := 0; i < 5; i++ {
+		if !limiter.Reserve(0) {
+			t.Errorf("Request %d should be allowed", i+1)
+		}
+	}
+
+	// 第 6 个应该被拒绝
+	if limiter.Reserve(0) {
+		t.Error("6th request should be denied by RPD limit")
 	}
 }

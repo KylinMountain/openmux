@@ -35,7 +35,7 @@ func NewWeightedRoundRobin(provider string, apiKeys []string, rateLimit config.R
 			Provider:  provider,
 			APIKey:    key,
 			RateLimit: rateLimit,
-			Limiter:   ratelimit.NewMultiLimiter(rateLimit.RPM, rateLimit.TPM),
+			Limiter:   ratelimit.NewMultiLimiter(rateLimit.RPM, rateLimit.TPM, rateLimit.RPD),
 			Weight:    weight,
 			Healthy:   true,
 		})

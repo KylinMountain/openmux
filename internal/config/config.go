@@ -47,6 +47,7 @@ type ClientAPIKeyInfo struct {
 type RateLimit struct {
 	RPM        int `yaml:"rpm"`        // 每分钟请求数
 	TPM        int `yaml:"tpm"`        // 每分钟 token 数
+	RPD        int `yaml:"rpd"`        // 每天请求数
 	Concurrent int `yaml:"concurrent"` // 最大并发数
 }
 
