@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/openmux/openmux/internal/config"
+	"github.com/openmux/openmux/internal/cooldown"
 	"github.com/openmux/openmux/internal/provider"
 	"github.com/openmux/openmux/internal/router"
 	"github.com/openmux/openmux/pkg/logger"
@@ -15,8 +16,9 @@ import (
 // 通过 discovery 自动生成的 auto:lite/standard/large/reasoning 路由
 // 根据请求复杂度选择合适的层级
 type AutoRouter struct {
-	alias  string
-	router *router.Router
+	alias    string
+	router   *router.Router
+	cooldown *cooldown.Tracker
 
 	// 可选：LLM 分类器
 	classifierProvider string
@@ -29,7 +31,7 @@ type AutoRouter struct {
 }
 
 // New 创建 AutoRouter
-func New(cfg config.AutoRouteConfig, allCfg *config.Config, pool *provider.Pool, r *router.Router) *AutoRouter {
+func New(cfg config.AutoRouteConfig, allCfg *config.Config, pool *provider.Pool, r *router.Router, cd *cooldown.Tracker) *AutoRouter {
 	alias := cfg.Alias
 	if alias == "" {
 		alias = "auto"
@@ -38,6 +40,7 @@ func New(cfg config.AutoRouteConfig, allCfg *config.Config, pool *provider.Pool,
 	ar := &AutoRouter{
 		alias:         alias,
 		router:        r,
+		cooldown:      cd,
 		providerPool:  pool,
 		tierOverrides: make(map[Tier]string),
 	}
@@ -101,43 +104,77 @@ func (a *AutoRouter) Resolve(ctx context.Context, req *pkgopenai.ChatCompletionR
 	return routeName
 }
 
+// degradeOrder 从高到低的降级顺序
+// 每个 tier 先尝试自己，然后往小模型降级
+var degradeOrder = map[Tier][]Tier{
+	TierReasoning: {TierReasoning, TierLarge, TierStandard, TierLite},
+	TierLarge:     {TierLarge, TierStandard, TierLite},
+	TierStandard:  {TierStandard, TierLite, TierLarge},
+	TierLite:      {TierLite, TierStandard},
+}
+
 // resolveRoute 查找 tier 对应的路由
-// 优先级：手动覆盖 > discovery 生成的 auto:* > 降级到其他 tier
+// 策略：先试分类到的 tier，如果该 tier 所有模型都过热，降级到更小的 tier
 func (a *AutoRouter) resolveRoute(tier Tier) string {
-	// 1. 检查手动覆盖
+	for _, t := range degradeOrder[tier] {
+		routeName := a.routeForTier(t)
+		if routeName == "" {
+			continue
+		}
+
+		// 检查该路由的所有 target 是否都过热
+		if a.cooldown != nil && a.allTargetsHot(routeName) {
+			logger.Infof("AutoRoute: %s all models hot, degrading", t)
+			continue
+		}
+
+		if t != tier {
+			logger.Infof("AutoRoute: degraded %s → %s", tier, t)
+		}
+		return routeName
+	}
+
+	// 兜底：返回任意可用路由（忽略冷却状态）
+	for _, t := range degradeOrder[tier] {
+		if name := a.routeForTier(t); name != "" {
+			return name
+		}
+	}
+	return ""
+}
+
+// routeForTier 查找 tier 对应的路由名
+func (a *AutoRouter) routeForTier(tier Tier) string {
+	// 手动覆盖优先
 	if name, ok := a.tierOverrides[tier]; ok {
 		if _, err := a.router.Route(name); err == nil {
 			return name
 		}
 	}
-
-	// 2. 检查 discovery 自动生成的路由 (auto:lite, auto:standard, etc.)
+	// discovery 自动生成
 	autoRoute := "auto:" + string(tier)
 	if _, err := a.router.Route(autoRoute); err == nil {
 		return autoRoute
 	}
-
-	// 3. Fallback: 尝试相邻 tier
-	fallbacks := map[Tier][]Tier{
-		TierLite:      {TierStandard, TierLarge},
-		TierStandard:  {TierLarge, TierLite},
-		TierLarge:     {TierStandard, TierReasoning},
-		TierReasoning: {TierLarge, TierStandard},
-	}
-
-	for _, fb := range fallbacks[tier] {
-		if name, ok := a.tierOverrides[fb]; ok {
-			if _, err := a.router.Route(name); err == nil {
-				return name
-			}
-		}
-		fbRoute := "auto:" + string(fb)
-		if _, err := a.router.Route(fbRoute); err == nil {
-			return fbRoute
-		}
-	}
-
 	return ""
+}
+
+// allTargetsHot 检查路由下所有 target 是否都在冷却中
+func (a *AutoRouter) allTargetsHot(routeName string) bool {
+	selector, err := a.router.Route(routeName)
+	if err != nil {
+		return false
+	}
+	targets := selector.GetAll()
+	if len(targets) == 0 {
+		return false
+	}
+	for _, t := range targets {
+		if !a.cooldown.IsHot(t.Provider, t.Model) {
+			return false // 至少有一个不热
+		}
+	}
+	return true
 }
 
 func (a *AutoRouter) classifyByLLM(ctx context.Context, req *pkgopenai.ChatCompletionRequest) Tier {

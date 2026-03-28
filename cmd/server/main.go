@@ -14,6 +14,7 @@ import (
 	"github.com/openmux/openmux/internal/autoroute"
 	"github.com/openmux/openmux/internal/balancer"
 	"github.com/openmux/openmux/internal/config"
+	"github.com/openmux/openmux/internal/cooldown"
 	"github.com/openmux/openmux/internal/discovery"
 	"github.com/openmux/openmux/internal/handler"
 	"github.com/openmux/openmux/internal/middleware"
@@ -58,15 +59,18 @@ func main() {
 	modelRouter := router.NewRouter(cfg)
 	authManager := auth.NewManager(&cfg.Auth)
 
+	// 创建模型冷却追踪器（429 标记模型级别过热，30s 冷却）
+	modelCooldown := cooldown.NewTracker(30 * time.Second)
+
 	// 创建智能路由
 	var autoRouter *autoroute.AutoRouter
 	if cfg.AutoRoute.Enabled {
-		autoRouter = autoroute.New(cfg.AutoRoute, cfg, providerPool, modelRouter)
+		autoRouter = autoroute.New(cfg.AutoRoute, cfg, providerPool, modelRouter, modelCooldown)
 		logger.Infof("Auto routing enabled (alias: %q)", autoRouter.Alias())
 	}
 
 	// 创建处理器
-	chatHandler := handler.NewChatHandler(modelRouter, providerPool, balancerPool, autoRouter)
+	chatHandler := handler.NewChatHandler(modelRouter, providerPool, balancerPool, autoRouter, modelCooldown)
 	embeddingHandler := handler.NewEmbeddingHandler(modelRouter, providerPool, balancerPool)
 	rerankHandler := handler.NewRerankHandler(modelRouter, providerPool, balancerPool)
 	modelsHandler := handler.NewModelsHandler(modelRouter)
