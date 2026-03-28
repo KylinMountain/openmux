@@ -3,7 +3,6 @@ package discovery
 import (
 	"context"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/openmux/openmux/internal/config"
@@ -12,26 +11,18 @@ import (
 )
 
 // ModelDiscovery 模型自动发现服务
-// 定时调用各 provider 的 /v1/models 接口，筛选免费模型并动态更新路由表
 type ModelDiscovery struct {
 	cfg    *config.Config
 	router *router.Router
 	cancel context.CancelFunc
 }
 
-// NewModelDiscovery 创建模型发现服务
 func NewModelDiscovery(cfg *config.Config, r *router.Router) *ModelDiscovery {
-	return &ModelDiscovery{
-		cfg:    cfg,
-		router: r,
-	}
+	return &ModelDiscovery{cfg: cfg, router: r}
 }
 
-// Start 启动发现服务（阻塞，应在 goroutine 中调用）
 func (d *ModelDiscovery) Start(ctx context.Context) {
 	ctx, d.cancel = context.WithCancel(ctx)
-
-	// 启动时立即执行一次
 	d.discoverOnce(ctx)
 
 	interval := d.cfg.Discovery.Interval
@@ -53,20 +44,24 @@ func (d *ModelDiscovery) Start(ctx context.Context) {
 	}
 }
 
-// Stop 停止发现服务
 func (d *ModelDiscovery) Stop() {
 	if d.cancel != nil {
 		d.cancel()
 	}
 }
 
-// discoverOnce 执行一次发现
 func (d *ModelDiscovery) discoverOnce(ctx context.Context) {
 	logger.Infof("Starting model discovery...")
 
 	allModels := make(map[string][]config.Target)
-	// 按 provider 分组收集免费模型，用于生成聚合路由
-	providerModels := make(map[string][]DiscoveredModel)
+
+	// 按 tier 分组收集模型
+	tierModels := map[ModelTier][]config.Target{
+		TierLite:      {},
+		TierStandard:  {},
+		TierLarge:     {},
+		TierReasoning: {},
+	}
 
 	for _, providerName := range d.cfg.Discovery.Providers {
 		provCfg, ok := d.cfg.Providers[providerName]
@@ -88,92 +83,91 @@ func (d *ModelDiscovery) discoverOnce(ctx context.Context) {
 		}
 
 		logger.Infof("Discovery: found %d free models from %s", len(models), providerName)
-		providerModels[providerName] = models
 
 		for _, m := range models {
-			// 以 provider/model 格式注册路由
+			// 注册单模型路由
 			routeName := m.ProviderName + "/" + m.ModelID
 			allModels[routeName] = []config.Target{{
 				Provider: m.ProviderName,
 				Model:    m.ModelID,
 				Weight:   1,
 			}}
+
+			// 解析模型信息并分级
+			sizeB := ParseModelSize(m.ModelID)
+			cap := ParseModelCapability(m.ModelID)
+			tier := ClassifyTier(sizeB, cap)
+
+			// 用参数量作为权重（越大越优先被选中）
+			weight := int(sizeB)
+			if weight < 1 {
+				weight = 1
+			}
+
+			tierModels[tier] = append(tierModels[tier], config.Target{
+				Provider: m.ProviderName,
+				Model:    m.ModelID,
+				Weight:   weight,
+			})
 		}
 	}
 
-	// 生成聚合 "free" 别名路由
-	// 每个 provider 选第一个模型作为 target，权重均分，实现跨平台 fallback
+	// 自动注册 tier 路由: auto:lite, auto:standard, auto:large, auto:reasoning
+	for tier, targets := range tierModels {
+		if len(targets) == 0 {
+			continue
+		}
+		routeName := "auto:" + string(tier)
+		allModels[routeName] = targets
+		logger.Infof("Discovery: auto:%s → %d models", tier, len(targets))
+	}
+
+	// 生成 "free" 聚合别名 — 从每个 tier 选权重最高的模型
 	freeAlias := d.cfg.Discovery.FreeAlias
 	if freeAlias == "" {
 		freeAlias = "free"
 	}
-	if targets := buildFreeAliasTargets(providerModels); len(targets) > 0 {
+	if targets := buildFreeTargets(tierModels); len(targets) > 0 {
 		allModels[freeAlias] = targets
-		logger.Infof("Discovery: registered alias %q with %d targets", freeAlias, len(targets))
+		logger.Infof("Discovery: alias %q → %d targets", freeAlias, len(targets))
 	}
 
 	if len(allModels) > 0 {
 		added, removed := d.router.UpdateDiscoveredModels(allModels)
-		logger.Infof("Discovery complete: %d routes total, %d added, %d removed", len(allModels), added, removed)
+		logger.Infof("Discovery complete: %d routes, %d added, %d removed", len(allModels), added, removed)
 	} else {
 		logger.Infof("Discovery complete: no models discovered")
 	}
 }
 
-// buildFreeAliasTargets 从每个 provider 的免费模型中选一个代表，组成聚合路由
-// 排序策略：按模型参数量/知名度粗排，大模型优先
-func buildFreeAliasTargets(providerModels map[string][]DiscoveredModel) []config.Target {
+// buildFreeTargets 从 standard 和 large tier 中选权重最高的模型组成 free 路由
+func buildFreeTargets(tierModels map[ModelTier][]config.Target) []config.Target {
 	var targets []config.Target
 
-	// 按 provider 名称排序，保证稳定性
-	providerNames := make([]string, 0, len(providerModels))
-	for name := range providerModels {
-		providerNames = append(providerNames, name)
-	}
-	sort.Strings(providerNames)
-
-	for _, providerName := range providerNames {
-		models := providerModels[providerName]
+	// 优先从 large 和 standard 中各取 top 模型
+	for _, tier := range []ModelTier{TierLarge, TierStandard, TierLite} {
+		models := tierModels[tier]
 		if len(models) == 0 {
 			continue
 		}
-		// 选最佳免费模型作为该 provider 的代表
-		best := selectBestModel(models)
-		targets = append(targets, config.Target{
-			Provider: best.ProviderName,
-			Model:    best.ModelID,
-			Weight:   1,
+		// 按权重排序取最大的
+		sorted := make([]config.Target, len(models))
+		copy(sorted, models)
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i].Weight > sorted[j].Weight
 		})
+		best := sorted[0]
+		best.Weight = 1 // free 路由中各 tier 权重均分
+		targets = append(targets, best)
 	}
+
 	return targets
 }
 
-// selectBestModel 从模型列表中选择"最佳"免费模型
-// 启发式：优先选参数量大的知名模型
-func selectBestModel(models []DiscoveredModel) DiscoveredModel {
-	if len(models) == 1 {
-		return models[0]
-	}
+// TierRoutePrefix auto: 前缀
+const TierRoutePrefix = "auto:"
 
-	// 优先关键词列表（从高到低）
-	priorities := []string{
-		"qwen3", "qwen-2.5-72b", "deepseek-v3", "deepseek-r1",
-		"llama-3.3-70b", "gemini", "glm-4",
-		"qwen2.5", "llama", "mistral",
-	}
-
-	id := func(m DiscoveredModel) string {
-		return strings.ToLower(m.ModelID)
-	}
-
-	for _, keyword := range priorities {
-		for _, m := range models {
-			if strings.Contains(id(m), keyword) {
-				return m
-			}
-		}
-	}
-
-	// 没匹配到，返回第一个
-	return models[0]
+// TierRouteName 返回 tier 对应的路由名
+func TierRouteName(tier ModelTier) string {
+	return TierRoutePrefix + string(tier)
 }
