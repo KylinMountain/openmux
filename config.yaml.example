@@ -271,6 +271,19 @@ passthrough:
     - longcat
     - volcengine
 
+# ============================================================
+# 模型自动发现
+# 定时从各平台 /v1/models 接口获取最新免费模型列表
+# 发现的模型会自动注册路由，可通过 provider/model 格式访问
+# ============================================================
+discovery:
+  enabled: true
+  interval: 24h  # 刷新间隔
+  providers:     # 需要自动发现的 provider
+    - openrouter
+    - siliconflow
+    - modelscope
+
 # 监控配置
 monitoring:
   enabled: true

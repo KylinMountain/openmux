@@ -11,6 +11,14 @@ type Config struct {
 	Passthrough  PassthroughConfig         `yaml:"passthrough"`
 	Monitoring   MonitoringConfig          `yaml:"monitoring"`
 	Cache        CacheConfig               `yaml:"cache"`
+	Discovery    DiscoveryConfig           `yaml:"discovery"`
+}
+
+// DiscoveryConfig 模型自动发现配置
+type DiscoveryConfig struct {
+	Enabled   bool          `yaml:"enabled"`
+	Interval  time.Duration `yaml:"interval"`   // 刷新间隔，默认 24h
+	Providers []string      `yaml:"providers"`  // 需要发现的 provider 列表
 }
 
 // ServerConfig 服务器配置

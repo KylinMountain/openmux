@@ -13,6 +13,7 @@ import (
 	"github.com/openmux/openmux/internal/auth"
 	"github.com/openmux/openmux/internal/balancer"
 	"github.com/openmux/openmux/internal/config"
+	"github.com/openmux/openmux/internal/discovery"
 	"github.com/openmux/openmux/internal/handler"
 	"github.com/openmux/openmux/internal/middleware"
 	"github.com/openmux/openmux/internal/provider"
@@ -135,6 +136,14 @@ func main() {
 		WriteTimeout: cfg.Server.WriteTimeout,
 	}
 
+	// 启动模型自动发现
+	var disc *discovery.ModelDiscovery
+	if cfg.Discovery.Enabled {
+		disc = discovery.NewModelDiscovery(cfg, modelRouter)
+		go disc.Start(context.Background())
+		logger.Infof("Model discovery enabled (interval: %v, providers: %v)", cfg.Discovery.Interval, cfg.Discovery.Providers)
+	}
+
 	// 启动服务器
 	go func() {
 		logger.Infof("Server listening on %s", server.Addr)
@@ -149,6 +158,11 @@ func main() {
 	<-quit
 
 	logger.Println("Shutting down server...")
+
+	if disc != nil {
+		disc.Stop()
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
