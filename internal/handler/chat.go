@@ -64,7 +64,7 @@ func (h *ChatHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	// 智能路由：如果 model 是 auto 别名，根据请求复杂度选择实际路由
 	modelName := req.Model
 	if h.autoRouter != nil && modelName == h.autoRouter.Alias() {
-		modelName = h.autoRouter.Resolve(&req)
+		modelName = h.autoRouter.Resolve(r.Context(), &req)
 		if modelName == "" {
 			writeError(w, http.StatusBadRequest, "auto_route_error", "No model tier configured for auto routing")
 			return

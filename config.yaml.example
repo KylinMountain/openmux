@@ -268,6 +268,7 @@ model_routes:
 auto_route:
   enabled: true
   alias: "auto"                    # 触发别名
+  classifier: "zhipu/glm-4-flash"  # 用小模型做分类 (provider/model 格式，不配则纯规则)
   lite: "chat-lite"                # 简单任务 → 轻量模型 (打招呼、短问答)
   standard: "chat-free"            # 常规任务 → 标准模型 (普通对话、摘要)
   large: "chat-free-large"         # 复杂任务 → 大模型 (代码生成、长文写作、function calling)

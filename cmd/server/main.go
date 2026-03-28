@@ -61,7 +61,7 @@ func main() {
 	// 创建智能路由
 	var autoRouter *autoroute.AutoRouter
 	if cfg.AutoRoute.Enabled {
-		autoRouter = autoroute.New(cfg.AutoRoute)
+		autoRouter = autoroute.New(cfg.AutoRoute, cfg, providerPool)
 		logger.Infof("Auto routing enabled (alias: %q, lite: %q, standard: %q, large: %q, reasoning: %q)",
 			autoRouter.Alias(), cfg.AutoRoute.Lite, cfg.AutoRoute.Standard, cfg.AutoRoute.Large, cfg.AutoRoute.Reasoning)
 	}

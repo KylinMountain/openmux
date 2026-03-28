@@ -18,12 +18,13 @@ type Config struct {
 // AutoRouteConfig 智能路由配置
 // 根据请求复杂度自动分流到不同层级的模型
 type AutoRouteConfig struct {
-	Enabled   bool   `yaml:"enabled"`
-	Alias     string `yaml:"alias"`     // 触发别名，默认 "auto"
-	Lite      string `yaml:"lite"`      // 简单任务路由名
-	Standard  string `yaml:"standard"`  // 常规任务路由名
-	Large     string `yaml:"large"`     // 复杂任务路由名
-	Reasoning string `yaml:"reasoning"` // 推理任务路由名
+	Enabled    bool   `yaml:"enabled"`
+	Alias      string `yaml:"alias"`      // 触发别名，默认 "auto"
+	Classifier string `yaml:"classifier"` // 分类器模型 (provider/model 格式)，不配则纯规则
+	Lite       string `yaml:"lite"`       // 简单任务路由名
+	Standard   string `yaml:"standard"`   // 常规任务路由名
+	Large      string `yaml:"large"`      // 复杂任务路由名
+	Reasoning  string `yaml:"reasoning"`  // 推理任务路由名
 }
 
 // DiscoveryConfig 模型自动发现配置
