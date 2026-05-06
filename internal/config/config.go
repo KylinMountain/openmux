@@ -11,6 +11,28 @@ type Config struct {
 	Passthrough  PassthroughConfig         `yaml:"passthrough"`
 	Monitoring   MonitoringConfig          `yaml:"monitoring"`
 	Cache        CacheConfig               `yaml:"cache"`
+	Discovery    DiscoveryConfig           `yaml:"discovery"`
+	AutoRoute    AutoRouteConfig           `yaml:"auto_route"`
+}
+
+// AutoRouteConfig 智能路由配置
+// 根据请求复杂度自动分流到不同层级的模型
+type AutoRouteConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	Alias      string `yaml:"alias"`      // 触发别名，默认 "auto"
+	Classifier string `yaml:"classifier"` // 分类器模型 (provider/model 格式)，不配则纯规则
+	Lite       string `yaml:"lite"`       // 简单任务路由名
+	Standard   string `yaml:"standard"`   // 常规任务路由名
+	Large      string `yaml:"large"`      // 复杂任务路由名
+	Reasoning  string `yaml:"reasoning"`  // 推理任务路由名
+}
+
+// DiscoveryConfig 模型自动发现配置
+type DiscoveryConfig struct {
+	Enabled   bool          `yaml:"enabled"`
+	Interval  time.Duration `yaml:"interval"`   // 刷新间隔，默认 24h
+	Providers []string      `yaml:"providers"`  // 需要发现的 provider 列表
+	FreeAlias string        `yaml:"free_alias"` // 聚合别名，默认 "free"，用户可直接 model:"free" 调用
 }
 
 // ServerConfig 服务器配置
@@ -39,6 +61,7 @@ type ClientAPIKeyInfo struct {
 type RateLimit struct {
 	RPM        int `yaml:"rpm"`        // 每分钟请求数
 	TPM        int `yaml:"tpm"`        // 每分钟 token 数
+	RPD        int `yaml:"rpd"`        // 每天请求数
 	Concurrent int `yaml:"concurrent"` // 最大并发数
 }
 

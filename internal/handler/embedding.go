@@ -86,17 +86,23 @@ func (h *EmbeddingHandler) handleWithRetry(
 ) (*openai.CreateEmbeddingResponse, error) {
 	var lastErr error
 
+	var triedTarget string
 	target, err := targetSelector.Select()
 	if err == nil {
-		if resp, err := h.tryTarget(ctx, req, target); err == nil {
+		triedTarget = target.Provider + "/" + target.Model
+		resp, tryErr := h.tryTarget(ctx, req, target)
+		if tryErr == nil {
 			return resp, nil
 		}
-		logger.Warnf("Selected target %s/%s failed: %v", target.Provider, target.Model, err)
-		lastErr = err
+		logger.Warnf("Selected target %s/%s failed: %v", target.Provider, target.Model, tryErr)
+		lastErr = tryErr
 	}
 
 	allTargets := targetSelector.GetAll()
 	for _, target := range allTargets {
+		if triedTarget == target.Provider+"/"+target.Model {
+			continue
+		}
 		resp, err := h.tryTarget(ctx, req, &target)
 		if err == nil {
 			return resp, nil
@@ -151,6 +157,7 @@ func (h *EmbeddingHandler) tryTarget(
 		return nil, err
 	}
 
+	backend.ResetFailCount()
 	return resp, nil
 }
 

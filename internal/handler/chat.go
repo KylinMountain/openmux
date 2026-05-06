@@ -7,8 +7,10 @@ import (
 	"net/http"
 
 	"github.com/openai/openai-go"
+	"github.com/openmux/openmux/internal/autoroute"
 	"github.com/openmux/openmux/internal/balancer"
 	"github.com/openmux/openmux/internal/config"
+	"github.com/openmux/openmux/internal/cooldown"
 	"github.com/openmux/openmux/internal/provider"
 	"github.com/openmux/openmux/internal/router"
 	"github.com/openmux/openmux/pkg/errors"
@@ -22,6 +24,8 @@ type ChatHandler struct {
 	router         *router.Router
 	providerPool   *provider.Pool
 	balancerPool   *balancer.BalancerPool
+	autoRouter     *autoroute.AutoRouter
+	cooldown       *cooldown.Tracker
 }
 
 // NewChatHandler 创建聊天处理器
@@ -29,11 +33,15 @@ func NewChatHandler(
 	router *router.Router,
 	providerPool *provider.Pool,
 	balancerPool *balancer.BalancerPool,
+	autoRouter *autoroute.AutoRouter,
+	cd *cooldown.Tracker,
 ) *ChatHandler {
 	return &ChatHandler{
 		router:       router,
 		providerPool: providerPool,
 		balancerPool: balancerPool,
+		autoRouter:   autoRouter,
+		cooldown:     cd,
 	}
 }
 
@@ -57,8 +65,18 @@ func (h *ChatHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		// Option to log full tools content if needed, but count is good start
 	}
 
+	// 智能路由：如果 model 是 auto 别名，根据请求复杂度选择实际路由
+	modelName := req.Model
+	if h.autoRouter != nil && modelName == h.autoRouter.Alias() {
+		modelName = h.autoRouter.Resolve(r.Context(), &req)
+		if modelName == "" {
+			writeError(w, http.StatusBadRequest, "auto_route_error", "No model tier configured for auto routing")
+			return
+		}
+	}
+
 	// 路由模型
-	targetSelector, err := h.router.Route(req.Model)
+	targetSelector, err := h.router.Route(modelName)
 	if err != nil {
 		if e, ok := err.(*errors.Error); ok {
 			writeError(w, http.StatusNotFound, string(e.Code), e.Message)
@@ -125,17 +143,23 @@ func (h *ChatHandler) handleStream(
 	var lastErr error
 	
 	// 首先尝试使用加权选择器选择目标
+	var triedTarget string
 	target, err := targetSelector.Select()
 	if err == nil {
-		if err := h.tryStreamTarget(w, r, req, flusher, target); err == nil {
+		triedTarget = target.Provider + "/" + target.Model
+		if tryErr := h.tryStreamTarget(w, r, req, flusher, target); tryErr == nil {
 			return
+		} else {
+			logger.Warnf("Stream target %s/%s failed: %v", target.Provider, target.Model, tryErr)
+			lastErr = tryErr
 		}
-		logger.Warnf("Stream target %s/%s failed: %v", target.Provider, target.Model, err)
-		lastErr = err
 	}
 
-	// 如果加权选择失败，尝试所有目标（用于重试）
+	// 如果加权选择失败，尝试所有目标（跳过已尝试的）
 	for _, target := range allTargets {
+		if triedTarget == target.Provider+"/"+target.Model {
+			continue
+		}
 		if err := h.tryStreamTarget(w, r, req, flusher, &target); err == nil {
 			return
 		}
@@ -177,7 +201,7 @@ func (h *ChatHandler) tryStreamTarget(
 	streamResp, err := prov.ChatCompletionStream(r.Context(), req, target.Model, backend.APIKey)
 	if err != nil {
 		if errors.IsRateLimitError(err) {
-			h.markBackendUnhealthy(target.Provider, backend)
+			h.cooldown.MarkHot(target.Provider, target.Model)
 		}
 		return err
 	}
@@ -244,19 +268,35 @@ func (h *ChatHandler) handleWithRetry(
 ) (*openai.ChatCompletion, error) {
 	var lastErr error
 
-	// 首先尝试使用加权选择器选择目标
+	// 首先尝试使用加权选择器选择目标（跳过过热模型）
+	var triedTarget string
 	target, err := targetSelector.Select()
 	if err == nil {
-		if resp, err := h.tryTarget(ctx, req, target); err == nil {
-			return resp, nil
+		if h.cooldown.IsHot(target.Provider, target.Model) {
+			logger.Infof("Target %s/%s is hot, skipping to fallback", target.Provider, target.Model)
+			triedTarget = target.Provider + "/" + target.Model
+		} else {
+			triedTarget = target.Provider + "/" + target.Model
+			resp, tryErr := h.tryTarget(ctx, req, target)
+			if tryErr == nil {
+				return resp, nil
+			}
+			logger.Warnf("Selected target %s/%s failed: %v", target.Provider, target.Model, tryErr)
+			lastErr = tryErr
 		}
-		logger.Warnf("Selected target %s/%s failed: %v", target.Provider, target.Model, err)
-		lastErr = err
 	}
 
-	// 如果加权选择失败，尝试所有目标（用于重试）
+	// fallback: 尝试所有目标（跳过已尝试和过热的）
 	allTargets := targetSelector.GetAll()
 	for _, target := range allTargets {
+		targetKey := target.Provider + "/" + target.Model
+		if targetKey == triedTarget {
+			continue
+		}
+		if h.cooldown.IsHot(target.Provider, target.Model) {
+			logger.Debugf("Skipping hot model %s/%s", target.Provider, target.Model)
+			continue
+		}
 		resp, err := h.tryTarget(ctx, req, &target)
 		if err == nil {
 			return resp, nil
@@ -312,7 +352,9 @@ func (h *ChatHandler) tryTarget(
 
 	if err != nil {
 		if errors.IsRateLimitError(err) {
-			h.markBackendUnhealthy(target.Provider, backend)
+			// 标记模型过热（非 backend 级别），同 provider 其他模型不受影响
+			h.cooldown.MarkHot(target.Provider, target.Model)
+			logger.Infof("Model %s/%s marked hot (rate limited)", target.Provider, target.Model)
 		}
 		return nil, err
 	}

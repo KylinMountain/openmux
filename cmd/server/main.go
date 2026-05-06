@@ -11,8 +11,11 @@ import (
 	"time"
 
 	"github.com/openmux/openmux/internal/auth"
+	"github.com/openmux/openmux/internal/autoroute"
 	"github.com/openmux/openmux/internal/balancer"
 	"github.com/openmux/openmux/internal/config"
+	"github.com/openmux/openmux/internal/cooldown"
+	"github.com/openmux/openmux/internal/discovery"
 	"github.com/openmux/openmux/internal/handler"
 	"github.com/openmux/openmux/internal/middleware"
 	"github.com/openmux/openmux/internal/provider"
@@ -56,8 +59,18 @@ func main() {
 	modelRouter := router.NewRouter(cfg)
 	authManager := auth.NewManager(&cfg.Auth)
 
+	// 创建模型冷却追踪器（429 标记模型级别过热，30s 冷却）
+	modelCooldown := cooldown.NewTracker(30 * time.Second)
+
+	// 创建智能路由
+	var autoRouter *autoroute.AutoRouter
+	if cfg.AutoRoute.Enabled {
+		autoRouter = autoroute.New(cfg.AutoRoute, cfg, providerPool, modelRouter, modelCooldown)
+		logger.Infof("Auto routing enabled (alias: %q)", autoRouter.Alias())
+	}
+
 	// 创建处理器
-	chatHandler := handler.NewChatHandler(modelRouter, providerPool, balancerPool)
+	chatHandler := handler.NewChatHandler(modelRouter, providerPool, balancerPool, autoRouter, modelCooldown)
 	embeddingHandler := handler.NewEmbeddingHandler(modelRouter, providerPool, balancerPool)
 	rerankHandler := handler.NewRerankHandler(modelRouter, providerPool, balancerPool)
 	modelsHandler := handler.NewModelsHandler(modelRouter)
@@ -135,6 +148,14 @@ func main() {
 		WriteTimeout: cfg.Server.WriteTimeout,
 	}
 
+	// 启动模型自动发现
+	var disc *discovery.ModelDiscovery
+	if cfg.Discovery.Enabled {
+		disc = discovery.NewModelDiscovery(cfg, modelRouter)
+		go disc.Start(context.Background())
+		logger.Infof("Model discovery enabled (interval: %v, providers: %v)", cfg.Discovery.Interval, cfg.Discovery.Providers)
+	}
+
 	// 启动服务器
 	go func() {
 		logger.Infof("Server listening on %s", server.Addr)
@@ -149,6 +170,11 @@ func main() {
 	<-quit
 
 	logger.Println("Shutting down server...")
+
+	if disc != nil {
+		disc.Stop()
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 

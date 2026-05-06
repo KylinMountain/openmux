@@ -29,7 +29,7 @@ func NewManager(cfg *config.AuthConfig) *Manager {
 		clients[apiKey.Key] = &ClientInfo{
 			Key:     apiKey.Key,
 			Name:    apiKey.Name,
-			Limiter: ratelimit.NewMultiLimiter(apiKey.RateLimit.RPM, apiKey.RateLimit.TPM),
+			Limiter: ratelimit.NewMultiLimiter(apiKey.RateLimit.RPM, apiKey.RateLimit.TPM, apiKey.RateLimit.RPD),
 		}
 	}
 	

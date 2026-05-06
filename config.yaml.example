@@ -1,4 +1,6 @@
 # OpenMux 配置示例
+# 开箱即用：只需在 .env 中填入对应平台的 API Key 即可启动
+# 支持的免费模型平台：智谱GLM、硅基流动、OpenRouter、魔搭ModelScope、阿里云百炼、DeepSeek、美团LongCat
 
 # 服务配置
 server:
@@ -11,45 +13,101 @@ server:
 # 认证配置
 auth:
   enabled: false
-  api_keys:
-    - key: "sk-your-service-key-1"
-      name: "client-1"
-      rate_limit:
-        rpm: 500
-        tpm: 200000
-        concurrent: 50
-    - key: "sk-your-service-key-2"
-      name: "client-2"
-      rate_limit:
-        rpm: 1000
-        tpm: 500000
-        concurrent: 100
+  # api_keys:
+  #   - key: "sk-your-service-key-1"
+  #     name: "client-1"
+  #     rate_limit:
+  #       rpm: 500
+  #       tpm: 200000
+  #       concurrent: 50
 
+# ============================================================
 # Provider 配置
+# 每个 provider 只需配置对应的环境变量 API Key 即可使用
+# 不需要的 provider 可以注释掉或删除
+# ============================================================
 providers:
+  # ----------------------------------------------------------
+  # 智谱 GLM (多款免费模型)
+  # 申请 Key: https://open.bigmodel.cn
+  # 免费模型: glm-4-flash, glm-4-flash-250414, glm-4v-flash,
+  #           glm-4.7-flash, glm-z1-flash, glm-4.5-flash
+  # 限制: 30 并发
+  # ----------------------------------------------------------
   zhipu:
     base_url: "https://open.bigmodel.cn/api/paas/v4"
     type: "openai"
     timeout: 60s
-    retry:
-      max_attempts: 3
-      backoff: "exponential"
+    rate_limit:
+      rpm: 60
+      tpm: 50000
+      concurrent: 30
+    api_keys:
+      - "${ZHIPU_API_KEY}"
+
+  # ----------------------------------------------------------
+  # 硅基流动 SiliconFlow (多款免费模型)
+  # 申请 Key: https://cloud.siliconflow.cn
+  # 免费模型: Qwen/Qwen2.5-7B-Instruct, Qwen/Qwen2.5-14B-Instruct,
+  #           deepseek-ai/DeepSeek-V3, deepseek-ai/DeepSeek-R1,
+  #           deepseek-ai/DeepSeek-R1-Distill-Qwen-32B, Qwen/QwQ-32B
+  # 注意: Pro/ 前缀为付费加速版
+  # ----------------------------------------------------------
+  siliconflow:
+    base_url: "https://api.siliconflow.cn/v1"
+    type: "openai"
+    timeout: 60s
     rate_limit:
       rpm: 100
       tpm: 50000
       concurrent: 10
     api_keys:
-      - "${ZHIPU_KEY_1}"
-      - "${ZHIPU_KEY_2}"
-    # load_balancer: # 可选，为 zhipu 单独配置密钥均衡策略
-    #   strategy: "weighted_round_robin" # 默认为轮询
-    #   health_check:
-    #     enabled: true
-    #     interval: 30s
-    #     timeout: 5s
-    #     unhealthy_threshold: 3
-    #     healthy_threshold: 2
+      - "${SILICONFLOW_API_KEY}"
 
+  # ----------------------------------------------------------
+  # OpenRouter (约 30 款免费模型，模型名带 :free 后缀)
+  # 申请 Key: https://openrouter.ai/keys
+  # 免费模型: google/gemini-2.5-flash:free,
+  #           meta-llama/llama-3.3-70b-instruct:free,
+  #           deepseek/deepseek-v3.2-20251201:free,
+  #           qwen/qwen3-coder:free 等
+  # 限制: ~20 RPM, ~200 请求/天
+  # ----------------------------------------------------------
+  openrouter:
+    base_url: "https://openrouter.ai/api/v1"
+    type: "openai"
+    timeout: 60s
+    rate_limit:
+      rpm: 20
+      tpm: 50000
+      concurrent: 5
+    api_keys:
+      - "${OPENROUTER_API_KEY}"
+
+  # ----------------------------------------------------------
+  # 魔搭 ModelScope (免费，每天 2000 次调用)
+  # 申请 Token: https://modelscope.cn/my/myaccesstoken
+  # 免费模型: Qwen/Qwen3-235B-A22B-Instruct-2507,
+  #           Qwen/Qwen3-32B, deepseek-ai/DeepSeek-V3-0324,
+  #           deepseek-ai/DeepSeek-R1-0528, ZhipuAI/GLM-4.6 等
+  # 限制: 2000 次/天，每日 00:00 (UTC+8) 重置
+  # ----------------------------------------------------------
+  modelscope:
+    base_url: "https://api-inference.modelscope.cn/v1"
+    type: "openai"
+    timeout: 60s
+    rate_limit:
+      rpm: 60
+      rpd: 2000     # 每天 2000 次调用限制
+      tpm: 100000
+      concurrent: 10
+    api_keys:
+      - "${MODELSCOPE_API_KEY}"
+
+  # ----------------------------------------------------------
+  # 阿里云百炼 DashScope (qwen-turbo 等有免费额度)
+  # 申请 Key: https://dashscope.console.aliyun.com
+  # ----------------------------------------------------------
   aliyun:
     base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
     type: "openai"
@@ -59,8 +117,12 @@ providers:
       tpm: 100000
       concurrent: 20
     api_keys:
-      - "${ALIYUN_KEY_1}"
+      - "${ALIYUN_API_KEY}"
 
+  # ----------------------------------------------------------
+  # DeepSeek
+  # 申请 Key: https://platform.deepseek.com
+  # ----------------------------------------------------------
   deepseek:
     base_url: "https://api.deepseek.com/v1"
     type: "openai"
@@ -70,34 +132,178 @@ providers:
       tpm: 100000
       concurrent: 20
     api_keys:
-      - "${DEEPSEEK_KEY_1}"
+      - "${DEEPSEEK_API_KEY}"
+
+  # ----------------------------------------------------------
+  # 美团 LongCat (公测免费，每日 50 万 tokens)
+  # 申请 Key: https://longcat.chat/platform
+  # 免费模型: LongCat-Flash-Chat, LongCat-Flash-Thinking,
+  #           LongCat-Flash-Lite (每日 5000 万 tokens)
+  # ----------------------------------------------------------
+  longcat:
+    base_url: "https://api.longcat.chat/openai/v1"
+    type: "openai"
+    timeout: 60s
+    rate_limit:
+      rpm: 60
+      tpm: 50000
+      concurrent: 10
+    api_keys:
+      - "${LONGCAT_API_KEY}"
+
+  # ----------------------------------------------------------
+  # 火山引擎 Volcengine / 豆包 Doubao (新用户每模型 50 万 tokens 免费)
+  # 申请 Key: https://www.volcengine.com
+  # 免费模型: doubao-lite-32k, doubao-pro-32k 等
+  # 注意: API Key 格式为 ark-xxxxx
+  # ----------------------------------------------------------
+  volcengine:
+    base_url: "https://ark.cn-beijing.volces.com/api/v3"
+    type: "openai"
+    timeout: 60s
+    rate_limit:
+      rpm: 120
+      tpm: 100000
+      concurrent: 10
+    api_keys:
+      - "${VOLCENGINE_API_KEY}"
 
 
-
-# 高级模型路由配置 (支持权重)
+# ============================================================
+# 模型路由配置
+# 通过别名将请求路由到不同的 provider/model 组合
+# 客户端只需使用别名即可，无需关心具体 provider
+# ============================================================
 model_routes:
-  large-model:
-    description: "通用大模型"
+  # 免费聊天模型 - 多平台 fallback
+  chat-free:
+    description: "免费聊天模型 (多平台自动 fallback)"
+    targets:
+      - provider: zhipu
+        model: glm-4-flash
+        weight: 3
+      - provider: siliconflow
+        model: Qwen/Qwen2.5-7B-Instruct
+        weight: 2
+      - provider: longcat
+        model: LongCat-Flash-Chat
+        weight: 2
+      - provider: modelscope
+        model: Qwen/Qwen3-8B
+        weight: 1
+      - provider: openrouter
+        model: meta-llama/llama-3.3-70b-instruct:free
+        weight: 1
+    strategy: weighted_round_robin
+
+  # 免费推理模型 - 思考链
+  reasoning-free:
+    description: "免费推理模型 (thinking)"
+    targets:
+      - provider: siliconflow
+        model: deepseek-ai/DeepSeek-R1
+        weight: 3
+      - provider: modelscope
+        model: deepseek-ai/DeepSeek-R1-0528
+        weight: 2
+      - provider: longcat
+        model: LongCat-Flash-Thinking
+        weight: 2
+      - provider: zhipu
+        model: glm-z1-flash
+        weight: 1
+    strategy: weighted_round_robin
+
+  # 免费大参数模型 (质量优先)
+  chat-free-large:
+    description: "免费大参数模型 (质量更高)"
+    targets:
+      - provider: modelscope
+        model: Qwen/Qwen3-235B-A22B-Instruct-2507
+        weight: 3
+      - provider: siliconflow
+        model: deepseek-ai/DeepSeek-V3
+        weight: 2
+      - provider: openrouter
+        model: deepseek/deepseek-v3.2-20251201:free
+        weight: 1
+    strategy: weighted_round_robin
+
+  # 通用大模型 (付费，质量更高)
+  chat:
+    description: "通用大模型 (付费)"
     targets:
       - provider: deepseek
         model: deepseek-chat
         weight: 3
+      - provider: aliyun
+        model: qwen-plus
+        weight: 2
       - provider: zhipu
         model: glm-4-plus
         weight: 1
     strategy: weighted_round_robin
 
-  # 同一模型的多云部署
-  glm-4-flash:
-    description: "GLM-4-Flash 多云部署"
+  # 免费高吞吐轻量模型
+  chat-lite:
+    description: "轻量高速模型 (免费)"
     targets:
+      - provider: longcat
+        model: LongCat-Flash-Lite
+        weight: 3
       - provider: zhipu
         model: glm-4-flash
         weight: 2
-      - provider: aliyun
-        model: glm-4-flash
+      - provider: siliconflow
+        model: Qwen/Qwen2.5-7B-Instruct
         weight: 1
     strategy: weighted_round_robin
+
+# ============================================================
+# 智能路由 (Auto Route)
+# 根据请求复杂度自动分流到不同层级的模型
+# 模型层级由 discovery 从模型名自动解析参数量并分级:
+#   lite (<10B), standard (10-72B), large (>72B), reasoning (thinking/R1)
+# 用法: curl -d '{"model":"auto", ...}'
+# ============================================================
+auto_route:
+  enabled: true
+  alias: "auto"                     # 触发别名
+  classifier: "zhipu/glm-4-flash"   # 可选: 用小模型辅助分类，不配则纯规则
+  # 可选: 手动覆盖某个层级的路由 (不配则自动使用 discovery 生成的 auto:* 路由)
+  # lite: "chat-lite"
+  # standard: "chat-free"
+  # large: "chat-free-large"
+  # reasoning: "reasoning-free"
+
+# 直通模式 - 允许 provider/model 格式直接访问
+passthrough:
+  enabled: true
+  allowed_providers:
+    - zhipu
+    - siliconflow
+    - openrouter
+    - modelscope
+    - aliyun
+    - deepseek
+    - longcat
+    - volcengine
+
+# ============================================================
+# 模型自动发现
+# 定时从各平台 /v1/models 接口获取最新免费模型列表
+# 发现的模型会自动注册路由，可通过 provider/model 格式访问
+# 同时自动生成聚合别名 "free"，从每个平台选最佳免费模型组成 fallback 组
+# 用法: curl -d '{"model":"free", ...}' 即可调用
+# ============================================================
+discovery:
+  enabled: true
+  interval: 24h       # 刷新间隔
+  free_alias: "free"  # 聚合别名，所有免费模型的入口
+  providers:           # 需要自动发现的 provider
+    - openrouter
+    - siliconflow
+    - modelscope
 
 # 监控配置
 monitoring:

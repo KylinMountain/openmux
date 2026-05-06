@@ -129,7 +129,9 @@ func maxSlice(nums []int) int {
 
 // Router 模型路由器
 type Router struct {
+	mu                sync.RWMutex
 	routes            map[string]TargetSelector
+	staticRoutes      map[string]bool // 静态配置的路由（不会被动态发现覆盖）
 	passthrough       bool
 	allowedProviders  map[string]bool
 	providers         map[string]bool
@@ -156,31 +158,41 @@ func NewRouter(cfg *config.Config) *Router {
 		routes[name] = selector
 	}
 
+	staticRoutes := make(map[string]bool, len(routes))
+	for name := range routes {
+		staticRoutes[name] = true
+	}
+
 	return &Router{
 		routes:           routes,
-		passthrough:      true,                      // 默认开启直通模式
-		allowedProviders: make(map[string]bool), // 保留空 map 以避免 nil panic
+		staticRoutes:     staticRoutes,
+		passthrough:      true,
+		allowedProviders: make(map[string]bool),
 		providers:        providers,
 	}
 }
 
 // Route 路由模型请求，返回目标选择器
 func (r *Router) Route(modelName string) (TargetSelector, error) {
+	r.mu.RLock()
+	selector, ok := r.routes[modelName]
+	r.mu.RUnlock()
+
 	// 1. 优先匹配自定义别名
-	if selector, ok := r.routes[modelName]; ok {
+	if ok {
 		return selector, nil
 	}
-	
+
 	// 2. 尝试解析 provider/model 格式
 	if r.passthrough {
 		provider, model, ok := parseProviderModel(modelName)
 		if ok {
 			// 检查 provider 是否存在
 			if !r.providers[provider] {
-				return nil, errors.New(errors.ErrCodeModelNotFound, 
+				return nil, errors.New(errors.ErrCodeModelNotFound,
 					fmt.Sprintf("provider not found: %s", provider))
 			}
-			
+
 			// 返回单个目标的选择器
 			return NewWeightedTargetSelector([]config.Target{{
 				Provider: provider,
@@ -189,13 +201,15 @@ func (r *Router) Route(modelName string) (TargetSelector, error) {
 			}}), nil
 		}
 	}
-	
-	return nil, errors.New(errors.ErrCodeModelNotFound, 
+
+	return nil, errors.New(errors.ErrCodeModelNotFound,
 		fmt.Sprintf("model not found: %s", modelName))
 }
 
 // ListModels 列出所有可用模型
 func (r *Router) ListModels() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	models := make([]string, 0, len(r.routes))
 	for name := range r.routes {
 		models = append(models, name)
@@ -210,6 +224,40 @@ func (r *Router) RouteTargets(modelName string) ([]config.Target, error) {
 		return nil, err
 	}
 	return selector.GetAll(), nil
+}
+
+// UpdateDiscoveredModels 动态更新发现的模型路由（不会覆盖静态配置）
+func (r *Router) UpdateDiscoveredModels(models map[string][]config.Target) (added, removed int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// 记录当前的动态路由
+	currentDynamic := make(map[string]bool)
+	for name := range r.routes {
+		if !r.staticRoutes[name] {
+			currentDynamic[name] = true
+		}
+	}
+
+	// 添加/更新动态路由
+	for name, targets := range models {
+		if r.staticRoutes[name] {
+			continue // 不覆盖静态路由
+		}
+		if _, exists := r.routes[name]; !exists {
+			added++
+		}
+		r.routes[name] = NewWeightedTargetSelector(targets)
+		delete(currentDynamic, name)
+	}
+
+	// 移除不再存在的动态路由
+	for name := range currentDynamic {
+		delete(r.routes, name)
+		removed++
+	}
+
+	return added, removed
 }
 
 // parseProviderModel 解析 provider/model 或 provider:model 格式

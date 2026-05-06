@@ -5,11 +5,17 @@ services:
     build: .
     ports:
       - "9000:9000"
+    env_file:
+      - .env
     environment:
-      - ZHIPU_KEY_1=${ZHIPU_KEY_1}
-      - ZHIPU_KEY_2=${ZHIPU_KEY_2}
-      - ALIYUN_KEY_1=${ALIYUN_KEY_1}
-      - DEEPSEEK_KEY_1=${DEEPSEEK_KEY_1}
+      - ZHIPU_API_KEY=${ZHIPU_API_KEY}
+      - SILICONFLOW_API_KEY=${SILICONFLOW_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - MODELSCOPE_API_KEY=${MODELSCOPE_API_KEY}
+      - ALIYUN_API_KEY=${ALIYUN_API_KEY}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - LONGCAT_API_KEY=${LONGCAT_API_KEY}
+      - VOLCENGINE_API_KEY=${VOLCENGINE_API_KEY}
     volumes:
       - ./config.yaml:/app/config.yaml
     restart: unless-stopped
