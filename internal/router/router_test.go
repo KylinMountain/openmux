@@ -113,3 +113,27 @@ func TestRouter_ModelRouteWithMultipleTargets(t *testing.T) {
 	assert.True(t, foundA, "provider-a should be a target")
 	assert.True(t, foundB, "provider-b should be a target")
 }
+
+func TestPrioritySelectorKeepsConfigOrder(t *testing.T) {
+	targets := []config.Target{
+		{Provider: "a", Model: "m1"},
+		{Provider: "b", Model: "m2"},
+		{Provider: "c", Model: "m3"},
+	}
+	sel := NewPriorityTargetSelector(targets)
+	for i := 0; i < 5; i++ {
+		got, err := sel.Select()
+		if err != nil || got.Provider != "a" {
+			t.Fatalf("Select #%d = %v, %v; want provider a", i, got, err)
+		}
+	}
+	all := sel.GetAll()
+	for i, want := range []string{"a", "b", "c"} {
+		if all[i].Provider != want {
+			t.Fatalf("GetAll()[%d] = %s, want %s", i, all[i].Provider, want)
+		}
+	}
+	if _, err := NewPriorityTargetSelector(nil).Select(); err == nil {
+		t.Fatal("empty selector should return an error")
+	}
+}

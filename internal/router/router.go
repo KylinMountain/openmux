@@ -160,6 +160,8 @@ func NewRouter(cfg *config.Config) *Router {
 		switch route.Strategy {
 		case "weighted_round_robin", "":
 			selector = NewWeightedTargetSelector(route.Targets)
+		case "priority":
+			selector = NewPriorityTargetSelector(route.Targets)
 		default:
 			// 默认使用加权轮询
 			selector = NewWeightedTargetSelector(route.Targets)
