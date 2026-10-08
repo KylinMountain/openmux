@@ -22,13 +22,23 @@ type OpenRouterModelsResponse struct {
 
 // OpenRouterModelEntry OpenRouter 模型条目（包含定价信息）
 type OpenRouterModelEntry struct {
-	ID      string              `json:"id"`
-	Name    string              `json:"name"`
-	Pricing OpenRouterPricing   `json:"pricing"`
+	ID             string                 `json:"id"`
+	Name           string                 `json:"name"`
+	CanonicalSlug  string                 `json:"canonical_slug"`
+	HuggingFaceID  string                 `json:"hugging_face_id"`
+	ContextLength  int                    `json:"context_length"`
+	Pricing        OpenRouterPricing      `json:"pricing"`
+	Architecture   OpenRouterArchitecture `json:"architecture"`
 }
 
 // OpenRouterPricing OpenRouter 定价信息
 type OpenRouterPricing struct {
 	Prompt     string `json:"prompt"`
 	Completion string `json:"completion"`
+}
+
+// OpenRouterArchitecture 模型架构信息（modality 用于过滤非聊天模型）
+// modality 形如 "text->text", "text+image->text", "text->audio" 等
+type OpenRouterArchitecture struct {
+	Modality string `json:"modality"`
 }

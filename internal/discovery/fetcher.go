@@ -14,6 +14,10 @@ import (
 type DiscoveredModel struct {
 	ProviderName string
 	ModelID      string
+	// 以下字段可选，目前只有 OpenRouter 会填充。用于更精确地解析参数量与过滤非聊天模型。
+	CanonicalSlug string
+	HuggingFaceID string
+	Modality      string // 形如 "text->text"，空字符串表示未知
 }
 
 // Fetcher 模型发现接口
@@ -66,22 +70,34 @@ func fetchJSON(ctx context.Context, url, apiKey string, result interface{}) erro
 type OpenRouterFetcher struct{}
 
 func (f *OpenRouterFetcher) FetchFreeModels(ctx context.Context, baseURL, apiKey string) ([]DiscoveredModel, error) {
+	resp, err := f.FetchAll(ctx, baseURL, apiKey)
+	if err != nil {
+		return nil, err
+	}
+	var models []DiscoveredModel
+	for _, m := range resp.Data {
+		if isFreePrice(m.Pricing.Prompt) && isFreePrice(m.Pricing.Completion) {
+			models = append(models, DiscoveredModel{
+				ProviderName:  "openrouter",
+				ModelID:       m.ID,
+				CanonicalSlug: m.CanonicalSlug,
+				HuggingFaceID: m.HuggingFaceID,
+				Modality:      m.Architecture.Modality,
+			})
+		}
+	}
+	return models, nil
+}
+
+// FetchAll 拉取 OpenRouter 全量 catalog（含付费），用于 admin/UI 展示。
+// apiKey 可为空，OpenRouter /models 端点公开可访问。
+func (f *OpenRouterFetcher) FetchAll(ctx context.Context, baseURL, apiKey string) (*OpenRouterModelsResponse, error) {
 	url := strings.TrimSuffix(baseURL, "/") + "/models"
 	var resp OpenRouterModelsResponse
 	if err := fetchJSON(ctx, url, apiKey, &resp); err != nil {
 		return nil, fmt.Errorf("openrouter: %w", err)
 	}
-
-	var models []DiscoveredModel
-	for _, m := range resp.Data {
-		if isFreePrice(m.Pricing.Prompt) && isFreePrice(m.Pricing.Completion) {
-			models = append(models, DiscoveredModel{
-				ProviderName: "openrouter",
-				ModelID:      m.ID,
-			})
-		}
-	}
-	return models, nil
+	return &resp, nil
 }
 
 // isFreePrice 判断 OpenRouter 的定价字段是否为免费

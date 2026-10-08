@@ -127,11 +127,20 @@ func maxSlice(nums []int) int {
 	return max
 }
 
+// ModelMetadata 模型元信息，用于 /v1/models 扩展字段。仅 discovery 注册的路由会有。
+type ModelMetadata struct {
+	Tier     string  `json:"tier,omitempty"`     // lite / standard / large / reasoning
+	SizeB    float64 `json:"size_b,omitempty"`   // 参数量（B），0 表示未知
+	Provider string  `json:"provider,omitempty"` // 上游 provider 名（如 openrouter）
+	Source   string  `json:"source,omitempty"`   // "static" | "discovery" | "alias"
+}
+
 // Router 模型路由器
 type Router struct {
 	mu                sync.RWMutex
 	routes            map[string]TargetSelector
 	staticRoutes      map[string]bool // 静态配置的路由（不会被动态发现覆盖）
+	metadata          map[string]ModelMetadata
 	passthrough       bool
 	allowedProviders  map[string]bool
 	providers         map[string]bool
@@ -151,6 +160,8 @@ func NewRouter(cfg *config.Config) *Router {
 		switch route.Strategy {
 		case "weighted_round_robin", "":
 			selector = NewWeightedTargetSelector(route.Targets)
+		case "priority":
+			selector = NewPriorityTargetSelector(route.Targets)
 		default:
 			// 默认使用加权轮询
 			selector = NewWeightedTargetSelector(route.Targets)
@@ -166,10 +177,50 @@ func NewRouter(cfg *config.Config) *Router {
 	return &Router{
 		routes:           routes,
 		staticRoutes:     staticRoutes,
+		metadata:         make(map[string]ModelMetadata),
 		passthrough:      true,
 		allowedProviders: make(map[string]bool),
 		providers:        providers,
 	}
+}
+
+// SetModelMetadata 设置某个路由的元信息（discovery 调用，覆盖式写入）
+func (r *Router) SetModelMetadata(name string, meta ModelMetadata) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.metadata[name] = meta
+}
+
+// GetModelMetadata 读取某个路由的元信息，第二个返回值为 false 表示无元信息
+func (r *Router) GetModelMetadata(name string) (ModelMetadata, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	meta, ok := r.metadata[name]
+	return meta, ok
+}
+
+// ModelInfo 路由名 + 可选元信息（用于 ListModelsWithMetadata）
+type ModelInfo struct {
+	Name     string
+	Metadata ModelMetadata
+	HasMeta  bool
+	IsStatic bool
+}
+
+// ListModelsWithMetadata 列出所有路由及其元信息
+func (r *Router) ListModelsWithMetadata() []ModelInfo {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]ModelInfo, 0, len(r.routes))
+	for name := range r.routes {
+		info := ModelInfo{Name: name, IsStatic: r.staticRoutes[name]}
+		if meta, ok := r.metadata[name]; ok {
+			info.Metadata = meta
+			info.HasMeta = true
+		}
+		out = append(out, info)
+	}
+	return out
 }
 
 // Route 路由模型请求，返回目标选择器
@@ -251,9 +302,10 @@ func (r *Router) UpdateDiscoveredModels(models map[string][]config.Target) (adde
 		delete(currentDynamic, name)
 	}
 
-	// 移除不再存在的动态路由
+	// 移除不再存在的动态路由（同时清理 metadata）
 	for name := range currentDynamic {
 		delete(r.routes, name)
+		delete(r.metadata, name)
 		removed++
 	}
 

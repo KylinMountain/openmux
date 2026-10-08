@@ -147,7 +147,9 @@ func (h *ChatHandler) handleStream(
 	target, err := targetSelector.Select()
 	if err == nil {
 		triedTarget = target.Provider + "/" + target.Model
-		if tryErr := h.tryStreamTarget(w, r, req, flusher, target); tryErr == nil {
+		if h.cooldown.IsHot(target.Provider, target.Model) {
+			logger.Infof("Stream target %s/%s is hot, skipping to fallback", target.Provider, target.Model)
+		} else if tryErr := h.tryStreamTarget(w, r, req, flusher, target); tryErr == nil {
 			return
 		} else {
 			logger.Warnf("Stream target %s/%s failed: %v", target.Provider, target.Model, tryErr)
@@ -158,6 +160,9 @@ func (h *ChatHandler) handleStream(
 	// 如果加权选择失败，尝试所有目标（跳过已尝试的）
 	for _, target := range allTargets {
 		if triedTarget == target.Provider+"/"+target.Model {
+			continue
+		}
+		if h.cooldown.IsHot(target.Provider, target.Model) {
 			continue
 		}
 		if err := h.tryStreamTarget(w, r, req, flusher, &target); err == nil {
@@ -207,7 +212,11 @@ func (h *ChatHandler) tryStreamTarget(
 	}
 
 	// 转发流式响应
-	usage, err := h.forwardStream(w, flusher, streamResp)
+	usage, sent, err := h.forwardStream(w, flusher, streamResp)
+	if err != nil && !sent {
+		// 还没向客户端发出任何数据：交给上层回退到下一个目标
+		return err
+	}
 	if usage > 0 {
 		actualUsage = usage
 	} else {
@@ -222,11 +231,13 @@ func (h *ChatHandler) tryStreamTarget(
 }
 
 // forwardStream 转发流式响应
-func (h *ChatHandler) forwardStream(w http.ResponseWriter, flusher http.Flusher, streamResp *provider.StreamResponse) (int, error) {
+// sent 表示是否已经向客户端写出过数据；没写出过时，出错不会写给客户端，由调用方回退。
+func (h *ChatHandler) forwardStream(w http.ResponseWriter, flusher http.Flusher, streamResp *provider.StreamResponse) (int, bool, error) {
 	stream := streamResp.Stream
 	defer stream.Close()
 
 	totalUsage := 0
+	sent := false
 
 	for stream.Next() {
 		chunk := stream.Current()
@@ -247,17 +258,21 @@ func (h *ChatHandler) forwardStream(w http.ResponseWriter, flusher http.Flusher,
 
 		fmt.Fprintf(w, "data: %s\n\n", data)
 		flusher.Flush()
+		sent = true
 	}
 
 	if err := stream.Err(); err != nil {
+		if !sent {
+			return totalUsage, false, err
+		}
 		writeSSEError(w, flusher, "stream_error", err.Error())
-		return totalUsage, err
+		return totalUsage, true, err
 	}
 
 	fmt.Fprintf(w, "data: [DONE]\n\n")
 	flusher.Flush()
-	
-	return totalUsage, nil
+
+	return totalUsage, sent, nil
 }
 
 // handleWithRetry 带重试的请求处理

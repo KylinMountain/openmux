@@ -75,6 +75,8 @@ func main() {
 	rerankHandler := handler.NewRerankHandler(modelRouter, providerPool, balancerPool)
 	modelsHandler := handler.NewModelsHandler(modelRouter)
 	healthHandler := handler.NewHealthHandler(balancerPool)
+	catalogHandler := handler.NewOpenRouterCatalogHandler(cfg)
+	uiHandler := handler.NewUIHandler()
 
 	// 创建中间件
 	authMiddleware := auth.NewMiddleware(authManager)
@@ -136,6 +138,29 @@ func main() {
 		middleware.Recovery(
 			middleware.Logger(
 				http.HandlerFunc(healthHandler.Handle),
+			),
+		),
+	)
+
+	// Admin / UI 端点（走 auth）
+	mux.Handle("/admin/openrouter/catalog",
+		middleware.Recovery(
+			middleware.Logger(
+				middleware.CORS(
+					authMiddleware.Authenticate(
+						http.HandlerFunc(catalogHandler.Handle),
+					),
+				),
+			),
+		),
+	)
+
+	mux.Handle("/ui",
+		middleware.Recovery(
+			middleware.Logger(
+				authMiddleware.Authenticate(
+					http.HandlerFunc(uiHandler.Handle),
+				),
 			),
 		),
 	)
