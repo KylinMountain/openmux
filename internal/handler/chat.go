@@ -117,7 +117,12 @@ func (h *ChatHandler) handleNonStream(
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	body, err := openaiShape(resp)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "encode_error", err.Error())
+		return
+	}
+	w.Write(body)
 }
 
 // handleStream 处理流式请求
@@ -251,7 +256,7 @@ func (h *ChatHandler) forwardStream(w http.ResponseWriter, flusher http.Flusher,
 			logger.Debugf("Stream chunk contains ToolCalls: %d", len(chunk.Choices[0].Delta.ToolCalls))
 		}
 
-		data, err := json.Marshal(chunk)
+		data, err := openaiShape(chunk)
 		if err != nil {
 			continue
 		}
