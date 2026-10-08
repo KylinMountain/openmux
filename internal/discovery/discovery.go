@@ -15,10 +15,15 @@ type ModelDiscovery struct {
 	cfg    *config.Config
 	router *router.Router
 	cancel context.CancelFunc
+	hf     *HFClient // 仅当 cfg.Discovery.FetchHuggingFaceMetadata 为 true 时初始化
 }
 
 func NewModelDiscovery(cfg *config.Config, r *router.Router) *ModelDiscovery {
-	return &ModelDiscovery{cfg: cfg, router: r}
+	d := &ModelDiscovery{cfg: cfg, router: r}
+	if cfg.Discovery.FetchHuggingFaceMetadata {
+		d.hf = NewHFClient()
+	}
+	return d
 }
 
 func (d *ModelDiscovery) Start(ctx context.Context) {
@@ -54,6 +59,8 @@ func (d *ModelDiscovery) discoverOnce(ctx context.Context) {
 	logger.Infof("Starting model discovery...")
 
 	allModels := make(map[string][]config.Target)
+	// 待写入 router 的元信息（与 allModels 路由名一一对应）
+	allMeta := make(map[string]router.ModelMetadata)
 
 	// 按 tier 分组收集模型
 	tierModels := map[ModelTier][]config.Target{
@@ -85,7 +92,7 @@ func (d *ModelDiscovery) discoverOnce(ctx context.Context) {
 		logger.Infof("Discovery: found %d free models from %s", len(models), providerName)
 
 		for _, m := range models {
-			// 注册单模型路由
+			// 注册单模型路由（不论是否聊天模型，都保留精确路由让用户可手动调用）
 			routeName := m.ProviderName + "/" + m.ModelID
 			allModels[routeName] = []config.Target{{
 				Provider: m.ProviderName,
@@ -93,10 +100,39 @@ func (d *ModelDiscovery) discoverOnce(ctx context.Context) {
 				Weight:   1,
 			}}
 
-			// 解析模型信息并分级
-			sizeB := ParseModelSize(m.ModelID)
+			// 优先用 OpenRouter 提供的 modality 过滤非聊天模型（如音频、OCR、图像生成），
+			// 它们不进入 auto:* 与 free 聚合路由。其他 provider 没有 modality 时按聊天模型对待。
+			if !IsTextGeneration(m.Modality) {
+				logger.Debugf("Discovery: skipping non-chat model %s (modality=%q)", routeName, m.Modality)
+				allMeta[routeName] = router.ModelMetadata{
+					Provider: m.ProviderName,
+					Source:   "discovery",
+				}
+				continue
+			}
+
+			// 多源解析参数量: model id → canonical_slug → hugging_face_id
+			sizeB := ParseModelSize(m.ModelID, m.CanonicalSlug, m.HuggingFaceID)
+
+			// 仍然解析不出且开启了 HF 兜底，调 HuggingFace API 查 safetensors.total
+			if sizeB == 0 && d.hf != nil && m.HuggingFaceID != "" {
+				if hfSize, _, err := d.hf.FetchModelInfo(ctx, m.HuggingFaceID); err == nil && hfSize > 0 {
+					sizeB = hfSize
+					logger.Debugf("Discovery: HF metadata for %s: %.1fB", m.HuggingFaceID, hfSize)
+				} else if err != nil {
+					logger.Debugf("Discovery: HF metadata fetch failed for %s: %v", m.HuggingFaceID, err)
+				}
+			}
+
 			cap := ParseModelCapability(m.ModelID)
 			tier := ClassifyTier(sizeB, cap)
+
+			allMeta[routeName] = router.ModelMetadata{
+				Tier:     string(tier),
+				SizeB:    sizeB,
+				Provider: m.ProviderName,
+				Source:   "discovery",
+			}
 
 			// 用参数量作为权重（越大越优先被选中）
 			weight := int(sizeB)
@@ -119,6 +155,10 @@ func (d *ModelDiscovery) discoverOnce(ctx context.Context) {
 		}
 		routeName := "auto:" + string(tier)
 		allModels[routeName] = targets
+		allMeta[routeName] = router.ModelMetadata{
+			Tier:   string(tier),
+			Source: "alias",
+		}
 		logger.Infof("Discovery: auto:%s → %d models", tier, len(targets))
 	}
 
@@ -129,11 +169,15 @@ func (d *ModelDiscovery) discoverOnce(ctx context.Context) {
 	}
 	if targets := buildFreeTargets(tierModels); len(targets) > 0 {
 		allModels[freeAlias] = targets
+		allMeta[freeAlias] = router.ModelMetadata{Source: "alias"}
 		logger.Infof("Discovery: alias %q → %d targets", freeAlias, len(targets))
 	}
 
 	if len(allModels) > 0 {
 		added, removed := d.router.UpdateDiscoveredModels(allModels)
+		for name, meta := range allMeta {
+			d.router.SetModelMetadata(name, meta)
+		}
 		logger.Infof("Discovery complete: %d routes, %d added, %d removed", len(allModels), added, removed)
 	} else {
 		logger.Infof("Discovery complete: no models discovered")

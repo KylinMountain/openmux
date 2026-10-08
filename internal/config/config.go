@@ -33,6 +33,12 @@ type DiscoveryConfig struct {
 	Interval  time.Duration `yaml:"interval"`   // 刷新间隔，默认 24h
 	Providers []string      `yaml:"providers"`  // 需要发现的 provider 列表
 	FreeAlias string        `yaml:"free_alias"` // 聚合别名，默认 "free"，用户可直接 model:"free" 调用
+
+	// FetchHuggingFaceMetadata 控制是否在模型 ID 与 canonical_slug 都解析不出参数量时
+	// 调用 HuggingFace 公开 API 查 safetensors.total 作为兜底。结果会在进程内缓存。
+	// 默认关闭以避免启动时多余的网络请求；OpenRouter 需要这个才能正确分级未带参数量的模型
+	// （如 GLM-4.5-Air、MiniMax-M2.5、Hy3-preview）。
+	FetchHuggingFaceMetadata bool `yaml:"fetch_huggingface_metadata"`
 }
 
 // ServerConfig 服务器配置

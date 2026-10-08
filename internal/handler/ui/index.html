@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>OpenMux Models</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: #fafafa; color: #222; }
+  header { padding: 14px 24px; border-bottom: 1px solid #e5e5e5; display: flex; align-items: center; gap: 12px; background: #fff; }
+  header h1 { margin: 0; font-size: 16px; font-weight: 600; }
+  header .meta { color: #888; font-size: 12px; }
+  .tabs { display: flex; gap: 4px; padding: 12px 24px 0; }
+  .tabs button { padding: 8px 14px; border: 1px solid #ddd; border-bottom: none; background: #f0f0f0; cursor: pointer;
+    border-radius: 6px 6px 0 0; font-size: 13px; }
+  .tabs button.active { background: #fff; font-weight: 600; }
+  main { padding: 0 24px 24px; }
+  .panel { background: #fff; border: 1px solid #ddd; border-radius: 0 6px 6px 6px; padding: 16px; }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .controls input[type=search] { flex: 1 1 280px; padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; font: inherit; }
+  .controls label { display: inline-flex; align-items: center; gap: 4px; color: #555; font-size: 13px; }
+  .controls .pill { padding: 2px 8px; border-radius: 10px; background: #eee; font-size: 12px; color: #555; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #eee; vertical-align: top; }
+  th { background: #f6f6f6; font-weight: 600; cursor: pointer; user-select: none; position: sticky; top: 0; }
+  th .sort { color: #aaa; font-size: 11px; }
+  tr.dim td { color: #888; }
+  td.id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  .tag { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px; line-height: 1.6; }
+  .tag.large    { background: #e3f2fd; color: #0d47a1; }
+  .tag.standard { background: #e8f5e9; color: #1b5e20; }
+  .tag.lite     { background: #fff3e0; color: #e65100; }
+  .tag.reasoning{ background: #f3e5f5; color: #4a148c; }
+  .tag.alias    { background: #fce4ec; color: #880e4f; }
+  .tag.static   { background: #eceff1; color: #455a64; }
+  .tag.discovery{ background: #e0f7fa; color: #006064; }
+  .tag.free     { background: #c8e6c9; color: #1b5e20; }
+  .tag.paid     { background: #ffe0b2; color: #bf360c; }
+  .tag.skip     { background: #f5f5f5; color: #888; }
+  .empty { padding: 24px; text-align: center; color: #888; }
+  .err { padding: 12px; border: 1px solid #ef9a9a; background: #ffebee; color: #b71c1c; border-radius: 4px; margin-bottom: 12px; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #1a1a1a; color: #ddd; }
+    header, .panel { background: #222; border-color: #333; }
+    th { background: #2a2a2a; }
+    th, td { border-color: #333; }
+    .tabs button { background: #2a2a2a; border-color: #333; color: #ccc; }
+    .tabs button.active { background: #222; }
+    .controls input[type=search] { background: #2a2a2a; border-color: #444; color: #eee; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>OpenMux</h1>
+  <span class="meta" id="meta">loading…</span>
+</header>
+
+<div class="tabs">
+  <button class="active" data-tab="registered">已注册路由</button>
+  <button data-tab="catalog">OpenRouter Catalog</button>
+</div>
+
+<main>
+  <div id="err" style="display:none" class="err"></div>
+
+  <section id="panel-registered" class="panel">
+    <div class="controls">
+      <input type="search" id="reg-q" placeholder="搜索路由名 / provider…">
+      <label><input type="checkbox" id="reg-static"> 含静态路由</label>
+      <span class="pill" id="reg-count">0</span>
+    </div>
+    <table>
+      <thead><tr>
+        <th data-sort="name">路由名</th>
+        <th data-sort="tier">Tier</th>
+        <th data-sort="size">参数量</th>
+        <th data-sort="provider">Provider</th>
+        <th data-sort="source">Source</th>
+      </tr></thead>
+      <tbody id="reg-body"></tbody>
+    </table>
+    <div id="reg-empty" class="empty" style="display:none">没有匹配的路由</div>
+  </section>
+
+  <section id="panel-catalog" class="panel" style="display:none">
+    <div class="controls">
+      <input type="search" id="cat-q" placeholder="搜索 OpenRouter 模型 ID / hf_id…">
+      <label><input type="checkbox" id="cat-free-only" checked> 仅免费</label>
+      <label><input type="checkbox" id="cat-text-only" checked> 仅聊天模型</label>
+      <span class="pill" id="cat-count">0</span>
+      <span class="pill" id="cat-source"></span>
+    </div>
+    <table>
+      <thead><tr>
+        <th data-sort="id">模型 ID</th>
+        <th data-sort="tier">Would-be Tier</th>
+        <th data-sort="size">参数量</th>
+        <th data-sort="ctx">Context</th>
+        <th data-sort="modality">Modality</th>
+        <th data-sort="price">价格 (prompt/compl)</th>
+      </tr></thead>
+      <tbody id="cat-body"></tbody>
+    </table>
+    <div id="cat-empty" class="empty" style="display:none">没有匹配的模型</div>
+  </section>
+</main>
+
+<script>
+(function() {
+  const $ = sel => document.querySelector(sel);
+  const tabs = document.querySelectorAll('.tabs button');
+  tabs.forEach(b => b.onclick = () => {
+    tabs.forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    document.getElementById('panel-registered').style.display = b.dataset.tab === 'registered' ? '' : 'none';
+    document.getElementById('panel-catalog').style.display    = b.dataset.tab === 'catalog'    ? '' : 'none';
+    if (b.dataset.tab === 'catalog' && !catalogLoaded) loadCatalog();
+  });
+
+  // ---- 已注册路由 ----
+  let registered = [];
+  let regSort = { key: 'name', asc: true };
+
+  function fmtSize(b) {
+    if (!b || b <= 0) return '—';
+    if (b >= 1000) return (b/1000).toFixed(1) + 'T';
+    return b.toFixed(b < 10 ? 1 : 0) + 'B';
+  }
+
+  function tagFor(s, cls) { return s ? `<span class="tag ${cls||s}">${s}</span>` : ''; }
+
+  function renderRegistered() {
+    const q = $('#reg-q').value.toLowerCase().trim();
+    const includeStatic = $('#reg-static').checked;
+    let rows = registered.filter(r => {
+      if (!includeStatic && r.openmux && r.openmux.source === 'static') return false;
+      if (!q) return true;
+      return r.id.toLowerCase().includes(q) ||
+             (r.openmux && r.openmux.provider && r.openmux.provider.toLowerCase().includes(q));
+    });
+    rows.sort((a, b) => {
+      const k = regSort.key, dir = regSort.asc ? 1 : -1;
+      const av = pickSort(a, k), bv = pickSort(b, k);
+      if (av < bv) return -1*dir;
+      if (av > bv) return 1*dir;
+      return 0;
+    });
+    function pickSort(r, k) {
+      if (k === 'name') return r.id;
+      if (k === 'size') return -(r.openmux && r.openmux.size_b || 0);
+      const m = r.openmux || {};
+      return m[k === 'tier' ? 'tier' : k] || '';
+    }
+    const body = $('#reg-body');
+    body.innerHTML = rows.map(r => {
+      const m = r.openmux || {};
+      return `<tr>
+        <td class="id">${r.id}</td>
+        <td>${tagFor(m.tier)}</td>
+        <td>${fmtSize(m.size_b)}</td>
+        <td>${m.provider || ''}</td>
+        <td>${tagFor(m.source)}</td>
+      </tr>`;
+    }).join('');
+    $('#reg-empty').style.display = rows.length ? 'none' : '';
+    $('#reg-count').textContent = rows.length + ' / ' + registered.length;
+  }
+
+  // ---- OpenRouter Catalog ----
+  let catalog = null;
+  let catalogLoaded = false;
+  let catSort = { key: 'id', asc: true };
+
+  function renderCatalog() {
+    if (!catalog) return;
+    const q = $('#cat-q').value.toLowerCase().trim();
+    const freeOnly = $('#cat-free-only').checked;
+    const textOnly = $('#cat-text-only').checked;
+    let rows = catalog.data.filter(m => {
+      if (freeOnly && !m.is_free) return false;
+      if (textOnly && !m.is_text_generation) return false;
+      if (!q) return true;
+      return m.id.toLowerCase().includes(q) ||
+             (m.hugging_face_id || '').toLowerCase().includes(q);
+    });
+    rows.sort((a, b) => {
+      const k = catSort.key, dir = catSort.asc ? 1 : -1;
+      function val(r) {
+        if (k === 'id') return r.id;
+        if (k === 'tier') return r.would_be_tier || 'zzz';
+        if (k === 'size') return -(r.size_b || 0);
+        if (k === 'ctx')  return -(r.context_length || 0);
+        if (k === 'modality') return r.modality || '';
+        if (k === 'price') return parseFloat(r.price_prompt) || 0;
+        return '';
+      }
+      const av = val(a), bv = val(b);
+      return av < bv ? -1*dir : av > bv ? 1*dir : 0;
+    });
+    const body = $('#cat-body');
+    body.innerHTML = rows.map(m => {
+      const dim = m.is_text_generation ? '' : 'dim';
+      const priceTag = m.is_free ? `<span class="tag free">free</span>` :
+                                   `<span class="tag paid">${m.price_prompt}/${m.price_completion}</span>`;
+      const tier = m.would_be_tier ? tagFor(m.would_be_tier) :
+                   (m.is_free ? `<span class="tag skip">skipped</span>` : '');
+      return `<tr class="${dim}">
+        <td class="id">${m.id}</td>
+        <td>${tier}</td>
+        <td>${fmtSize(m.size_b)}${m.size_source ? ' <span class="tag skip">'+m.size_source+'</span>' : ''}</td>
+        <td>${m.context_length ? m.context_length.toLocaleString() : '—'}</td>
+        <td>${m.modality || '—'}</td>
+        <td>${priceTag}</td>
+      </tr>`;
+    }).join('');
+    $('#cat-empty').style.display = rows.length ? 'none' : '';
+    $('#cat-count').textContent = `${rows.length} / ${catalog.total} (free: ${catalog.free_count})`;
+    $('#cat-source').textContent = `${catalog.source} · ${new Date(catalog.fetched_at).toLocaleString()}`;
+  }
+
+  // ---- 加载 ----
+  async function fetchJSON(url) {
+    const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
+    return r.json();
+  }
+  function showErr(msg) {
+    const e = $('#err');
+    if (msg) { e.textContent = msg; e.style.display = ''; }
+    else     { e.style.display = 'none'; }
+  }
+
+  async function loadRegistered() {
+    try {
+      const data = await fetchJSON('/v1/models');
+      registered = data.data || [];
+      renderRegistered();
+      $('#meta').textContent = `${registered.length} 个已注册路由`;
+    } catch (e) { showErr('加载 /v1/models 失败：' + e.message); }
+  }
+
+  async function loadCatalog() {
+    try {
+      $('#cat-source').textContent = 'loading…';
+      catalog = await fetchJSON('/admin/openrouter/catalog');
+      catalogLoaded = true;
+      renderCatalog();
+    } catch (e) { showErr('加载 catalog 失败：' + e.message); }
+  }
+
+  // 排序点击
+  document.querySelectorAll('#panel-registered th[data-sort]').forEach(th => {
+    th.onclick = () => {
+      const k = th.dataset.sort;
+      regSort = { key: k, asc: regSort.key === k ? !regSort.asc : true };
+      renderRegistered();
+    };
+  });
+  document.querySelectorAll('#panel-catalog th[data-sort]').forEach(th => {
+    th.onclick = () => {
+      const k = th.dataset.sort;
+      catSort = { key: k, asc: catSort.key === k ? !catSort.asc : true };
+      renderCatalog();
+    };
+  });
+
+  // 控件
+  ['#reg-q', '#reg-static'].forEach(s => $(s).oninput = renderRegistered);
+  ['#cat-q', '#cat-free-only', '#cat-text-only'].forEach(s => $(s).oninput = renderCatalog);
+
+  loadRegistered();
+})();
+</script>
+</body>
+</html>
