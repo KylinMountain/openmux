@@ -157,6 +157,10 @@ func (h *ChatHandler) handleStream(
 		} else if tryErr := h.tryStreamTarget(w, r, req, flusher, target); tryErr == nil {
 			return
 		} else {
+			if r.Context().Err() != nil {
+				logger.Infof("Stream cancelled by the client during %s/%s: %v", target.Provider, target.Model, r.Context().Err())
+				return
+			}
 			logger.Warnf("Stream target %s/%s failed: %v", target.Provider, target.Model, tryErr)
 			lastErr = tryErr
 		}
@@ -171,6 +175,10 @@ func (h *ChatHandler) handleStream(
 			continue
 		}
 		if err := h.tryStreamTarget(w, r, req, flusher, &target); err == nil {
+			return
+		}
+		if r.Context().Err() != nil {
+			logger.Infof("Stream cancelled by the client during %s/%s: %v", target.Provider, target.Model, r.Context().Err())
 			return
 		}
 		logger.Warnf("Stream target %s/%s failed: %v", target.Provider, target.Model, err)
@@ -301,6 +309,11 @@ func (h *ChatHandler) handleWithRetry(
 			if tryErr == nil {
 				return resp, nil
 			}
+			if ctx.Err() != nil {
+				// 客户端已经取消或超时：换下一个目标也没人在等，别把每个目标都"失败"一遍
+				logger.Infof("Request cancelled by the client during %s/%s: %v", target.Provider, target.Model, ctx.Err())
+				return nil, errors.Wrap(errors.ErrCodeTimeout, "request cancelled by the client", ctx.Err())
+			}
 			logger.Warnf("Selected target %s/%s failed: %v", target.Provider, target.Model, tryErr)
 			lastErr = tryErr
 		}
@@ -320,6 +333,10 @@ func (h *ChatHandler) handleWithRetry(
 		resp, err := h.tryTarget(ctx, req, &target)
 		if err == nil {
 			return resp, nil
+		}
+		if ctx.Err() != nil {
+			logger.Infof("Request cancelled by the client during %s/%s: %v", target.Provider, target.Model, ctx.Err())
+			return nil, errors.Wrap(errors.ErrCodeTimeout, "request cancelled by the client", ctx.Err())
 		}
 		logger.Warnf("Target %s/%s failed: %v", target.Provider, target.Model, err)
 
